@@ -21,6 +21,7 @@ import AuthorDetail from './pages/AuthorDetail'
 import Promotions from './pages/Promotions'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
+
 // Admin
 import AdminRoute from './routes/AdminRoute'
 import AdminDashboard from './pages/admin/AdminDashboard'
@@ -42,14 +43,19 @@ export default function App() {
         <Route path="/support" element={<Support />} />
         <Route path="/search" element={<Search />} />
         <Route path="/promotions" element={<Promotions />} />
+
+        {/* Authors */}
         <Route path="/authors" element={<Authors />} />
-        <Route path="/authors/:name" element={<AuthorDetail />} />
+        {/* Đổi :name -> :id để khớp BE và Link(`/authors/${a.id}`) */}
+        <Route path="/authors/:id" element={<AuthorDetail />} />
       </Route>
+
       <Route element={<AdminRoute />}>
         <Route element={<AdminLayout />}>
           <Route path="/admin" element={<AdminDashboard />} />
         </Route>
       </Route>
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
