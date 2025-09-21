@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Bảng màu khớp screenshot + biến bạn đang dùng trong DealCard */
+:root {
+  --brand: #3A59D1;             /* xanh dương đậm */
+  --brand-hover: #3D90D7;       /* xanh dương nhạt hơn */
+  --brand-light: #7AC6D2;       /* xanh ngọc */
+  --brand-purple:#6d28d9;       /* tím */
+  --color-price: #3A59D1;       /* giá tiền */
+  --color-danger: #e11d48;      /* đỏ badge/heart */
+
+  /* Gradients dùng cho nút */
+  --cta-grad: linear-gradient(135deg, #3A59D1, #3D90D7); /* giỏ hàng */
+  --buy-grad: linear-gradient(135deg, #7AC6D2, #B5FCCD); /* Mua ngay */
+}
+
+/* tiện ích chung (tuỳ chọn) */
+.container { @apply max-w-7xl mx-auto; }
+.btn { @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-semibold transition; }
+.btn-primary { @apply btn text-white; background: var(--brand); }
+.btn-primary:hover { background: var(--brand-hover); }
+.card { @apply rounded-xl shadow-md; background-color: #fff; }
+.input { @apply w-full px-3 py-2 border rounded-lg focus:ring-2 focus:border-transparent; --tw-ring-color: var(--brand); }
+.badge { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium; }
+
+/* === Thêm mới: LED border cho subnav === */
+@layer utilities {
+  @keyframes led-flow {
+    0%   { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+
+  /* Viền chạy RGB khi active */
+  .led-border {
+    position: relative;
+    border-radius: 9999px;
+    padding: 4px; /* độ dày viền */
+    background: linear-gradient(
+      90deg,
+      var(--brand),
+      var(--brand-light),
+      var(--brand-purple),
+      var(--brand)
+    );
+    background-size: 200% 200%;
+    animation: led-flow 4s linear infinite;
+    display: inline-block;
+  }
+
+  /* Ruột pill khi active */
+  .pill-inner {
+    @apply inline-flex items-center;
+    gap: .6rem;
+    border-radius: 9999px;
+    background: #fff;
+    min-height: 44px;   /* cao giống hình */
+    padding: 0 18px;    /* ngang rộng */
+    font-size: 1rem;
+    line-height: 1;
+    font-weight: 600;
+    color: var(--brand);
+    white-space: nowrap; /* icon + chữ luôn 1 hàng */
+  }
+
+  /* Pill khi không active – kích thước giống active */
+  .pill {
+    @apply inline-flex items-center;
+    gap: .6rem;
+    border-radius: 9999px;
+    background: #fff;
+    color: #374151;
+    min-height: 44px;
+    padding: 0 18px;
+    font-size: 1rem;
+    line-height: 1;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+}
