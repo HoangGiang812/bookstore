@@ -48,31 +48,47 @@ export default function BookDetail() {
         const b = await Catalog.getBook(id);
         if (!mounted) return;
 
-        // Lấy tên tác giả & slug từ các khả năng thường gặp
-        const authorName =
-          b.author?.name ||
-          b.authorName ||
-          (Array.isArray(b.authorNames) ? b.authorNames[0] : "") ||
-          b.author ||
-          "";
+        // Thu gom danh sách tên tác giả từ nhiều khả năng (mảng/chuỗi/embedded)
+        const namesFromArray =
+          Array.isArray(b.authorNames) ? b.authorNames :
+          (Array.isArray(b.authors) ? b.authors.map(x => x?.name || x?.fullName || x?.displayName).filter(Boolean) : []);
 
-        const authorSlugRaw =
-          b.author?.slug ||
-          b.authorSlug ||
-          (Array.isArray(b.authorSlugs) ? b.authorSlugs[0] : "") ||
-          (Array.isArray(b.authors) && b.authors.length
-            ? (b.authors[0].slug || "")
-            : "");
+        const namesFromString =
+          typeof b.author === "string"
+            ? b.author.split(",").map(s => s.trim()).filter(Boolean)
+            : (b.authorName ? [String(b.authorName)] : []);
+
+        const authorNames = (namesFromArray.length ? namesFromArray : namesFromString).filter(Boolean);
+
+        // Thu gom slug nếu có
+        const slugsFromArray =
+          Array.isArray(b.authorSlugs) ? b.authorSlugs :
+          (Array.isArray(b.authors) ? b.authors.map(x => x?.slug).filter(Boolean) : []);
+
+        // Chuẩn hoá cặp {name, slug}
+        const authors = authorNames.map((name, i) => {
+          const slugRaw =
+            slugsFromArray[i] ||
+            b.authorSlug || // trường đơn
+            (Array.isArray(b.authors) && b.authors[i]?.slug) ||
+            "";
+          return {
+            name,
+            slug: slugRaw && String(slugRaw).trim() ? slugRaw : slugify(name),
+          };
+        });
+
+        // Lấy "tác giả hiển thị" (dòng đơn) và slug đầu tiên để tương thích UI cũ
+        const authorDisplay = authors.map(a => a.name).join(", ");
+        const firstAuthorSlug = authors[0]?.slug || "";
 
         // Chuẩn hóa tối thiểu các field để render an toàn
         const normalized = {
           id: b._id || b.id,
           title: b.title,
-          author: authorName,
-          /** 👇 thêm slug để có thể link sang trang tác giả */
-          authorSlug:
-            (authorSlugRaw && String(authorSlugRaw).trim()) ||
-            (authorName ? slugify(authorName) : ""),
+          author: authorDisplay,           // dòng hiển thị gộp
+          authorSlug: firstAuthorSlug,     // slug tác giả đầu tiên (giữ để không vỡ UI cũ)
+          authors,                         // <-- mảng tác giả {name, slug} để render link
           image: b.coverUrl || b.image,
           price: Number(b.salePrice ?? b.price ?? 0),
           originalPrice:
@@ -103,10 +119,11 @@ export default function BookDetail() {
           /* ignore */
         }
         if (!rel || rel.length === 0) {
-          // fallback theo tác giả
-          if (normalized.author) {
+          // fallback theo tác giả (lấy tên đầu tiên nếu có)
+          const qAuthor = authors[0]?.name || authorDisplay;
+          if (qAuthor) {
             try {
-              rel = await Catalog.getBooks({ q: normalized.author, limit: 12 });
+              rel = await Catalog.getBooks({ q: qAuthor, limit: 12 });
             } catch {}
           }
         }
@@ -211,7 +228,21 @@ export default function BookDetail() {
 
           <p className="mb-3 text-gray-600">
             <span className="text-gray-500">Tác giả:</span>{" "}
-            {book.author ? (
+            {Array.isArray(book.authors) && book.authors.length > 0 ? (
+              <>
+                {book.authors.map((a, i) => (
+                  <span key={a.slug || a.name}>
+                    <Link
+                      to={`/authors/${encodeURIComponent(a.slug || slugify(a.name))}`}
+                      className="font-semibold text-blue-600 hover:underline"
+                    >
+                      {a.name}
+                    </Link>
+                    {i < book.authors.length - 1 ? ", " : ""}
+                  </span>
+                ))}
+              </>
+            ) : book.author ? (
               book.authorSlug ? (
                 <Link
                   to={`/authors/${encodeURIComponent(book.authorSlug)}`}

@@ -18,7 +18,6 @@ router.get('/', async (req, res, next) => {
   }
 });
 
-// GET /api/authors/:slug  (ưu tiên slug)
 router.get('/:slug', async (req, res, next) => {
   try {
     const author = await getAuthorBySlug(req.params.slug);
@@ -29,7 +28,6 @@ router.get('/:slug', async (req, res, next) => {
   }
 });
 
-// (Tuỳ chọn) GET /api/authors/id/:id  để redirect từ link cũ
 router.get('/id/:id', async (req, res, next) => {
   try {
     const author = await getAuthorById(req.params.id);
