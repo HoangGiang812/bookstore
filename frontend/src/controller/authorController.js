@@ -1,4 +1,4 @@
-import { fetchAuthors, fetchAuthorById } from "@/services/author";
+import { fetchAuthors, fetchAuthorBySlug } from "@/services/author";
 
 export async function getAuthors({ page = 1, limit = 20, q = "" } = {}) {
   const start = (page - 1) * limit;
@@ -6,7 +6,7 @@ export async function getAuthors({ page = 1, limit = 20, q = "" } = {}) {
   return Array.isArray(data) ? data : [];
 }
 
-export async function getAuthor(id) {
-  if (!id) return null;
-  return await fetchAuthorById(id);
+export async function getAuthor(slug) {
+  if (!slug) return null;
+  return await fetchAuthorBySlug(slug);
 }

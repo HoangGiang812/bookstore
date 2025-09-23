@@ -16,6 +16,16 @@ const toVND = (n) =>
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
+/** tạo slug dự phòng khi BE chưa trả */
+const slugify = (s = "") =>
+  s
+    .toLowerCase()
+    .normalize("NFD").replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+
 /* =================================================================== */
 
 export default function BookDetail() {
@@ -37,14 +47,32 @@ export default function BookDetail() {
       try {
         const b = await Catalog.getBook(id);
         if (!mounted) return;
+
+        // Lấy tên tác giả & slug từ các khả năng thường gặp
+        const authorName =
+          b.author?.name ||
+          b.authorName ||
+          (Array.isArray(b.authorNames) ? b.authorNames[0] : "") ||
+          b.author ||
+          "";
+
+        const authorSlugRaw =
+          b.author?.slug ||
+          b.authorSlug ||
+          (Array.isArray(b.authorSlugs) ? b.authorSlugs[0] : "") ||
+          (Array.isArray(b.authors) && b.authors.length
+            ? (b.authors[0].slug || "")
+            : "");
+
         // Chuẩn hóa tối thiểu các field để render an toàn
         const normalized = {
           id: b._id || b.id,
           title: b.title,
-          author:
-            b.author ||
-            (Array.isArray(b.authorNames) ? b.authorNames.join(", ") : b.authorName) ||
-            "",
+          author: authorName,
+          /** 👇 thêm slug để có thể link sang trang tác giả */
+          authorSlug:
+            (authorSlugRaw && String(authorSlugRaw).trim()) ||
+            (authorName ? slugify(authorName) : ""),
           image: b.coverUrl || b.image,
           price: Number(b.salePrice ?? b.price ?? 0),
           originalPrice:
@@ -98,7 +126,7 @@ export default function BookDetail() {
             .map((r) => ({
               id: r._id || r.id,
               title: r.title,
-              author: r.author || r.authorName || "",
+              author: r.author?.name || r.author || r.authorName || "",
               image: r.coverUrl || r.image,
               price: Number(r.salePrice ?? r.price ?? 0),
               originalPrice:
@@ -180,9 +208,23 @@ export default function BookDetail() {
           <h1 className="text-3xl lg:text-4xl font-extrabold mb-2">
             {book.title}
           </h1>
+
           <p className="mb-3 text-gray-600">
             <span className="text-gray-500">Tác giả:</span>{" "}
-            <span className="font-semibold">{book.author || "Đang cập nhật"}</span>
+            {book.author ? (
+              book.authorSlug ? (
+                <Link
+                  to={`/authors/${encodeURIComponent(book.authorSlug)}`}
+                  className="font-semibold text-blue-600 hover:underline"
+                >
+                  {book.author}
+                </Link>
+              ) : (
+                <span className="font-semibold">{book.author}</span>
+              )
+            ) : (
+              <span className="font-semibold">Đang cập nhật</span>
+            )}
           </p>
 
           {/* Rating */}
@@ -205,7 +247,12 @@ export default function BookDetail() {
                   {toVND(book.originalPrice)}
                 </span>
                 <span className="px-3 py-1 rounded-full bg-rose-100 text-rose-600 font-semibold text-sm">
-                  -{book.discountPercent ?? Math.round(((book.originalPrice - book.price) / book.originalPrice) * 100)}%
+                  -
+                  {book.discountPercent ??
+                    Math.round(
+                      ((book.originalPrice - book.price) / book.originalPrice) * 100
+                    )}
+                  %
                 </span>
               </>
             )}
@@ -227,8 +274,7 @@ export default function BookDetail() {
                 className="h-full"
                 style={{
                   width: `${stockPercent}%`,
-                  background:
-                    "linear-gradient(90deg, #3A59D1, #7AC6D2, #B5FCCD)",
+                  background: "linear-gradient(90deg, #3A59D1, #7AC6D2, #B5FCCD)",
                 }}
               />
             </div>

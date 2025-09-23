@@ -1,9 +1,17 @@
+// src/view/pages/Authors.jsx
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../../services/api";
+import { fetchAuthors } from "../../services/author";
 
 const initials = (name = "") =>
   name.trim().split(/\s+/).slice(-2).map(w => w[0]).join("").toUpperCase();
+
+// Fallback đề phòng item nào đó thiếu slug
+const slugify = (s = "") =>
+  s.toLowerCase()
+    .normalize("NFD").replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim().replace(/\s+/g, "-").replace(/-+/g, "-");
 
 export default function Authors() {
   const [items, setItems] = useState([]);
@@ -12,12 +20,13 @@ export default function Authors() {
 
   useEffect(() => {
     let ok = true;
-    api
-      .get("/authors", { params: { limit: 50, start: 0 } })
-      .then((res) => {
-        if (ok) setItems(Array.isArray(res) ? res : []);
+    fetchAuthors(50, 0, "")
+      .then((list) => {
+        if (!ok) return;
+        const arr = Array.isArray(list) ? list : [];
+        setItems(arr);
       })
-      .catch((e) => ok && setErr(e.message))
+      .catch((e) => ok && setErr(e?.message || "Fetch authors failed"))
       .finally(() => ok && setLoading(false));
     return () => { ok = false; };
   }, []);
@@ -30,29 +39,35 @@ export default function Authors() {
       <h1 className="text-4xl font-bold mb-10 text-center">Tác giả</h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-8">
-        {items.map((a) => (
-          <Link
-            key={a.id}
-            to={`/authors/${a.id}`}
-            className="group bg-white rounded-2xl border shadow-sm hover:shadow-lg transition overflow-hidden p-6 flex flex-col items-center text-center"
-          >
-            {/* Avatar tròn */}
-            <div className="w-20 h-20 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center shadow mb-4">
-              {a.avatar ? (
-                <img
-                  src={a.avatar}
-                  alt={a.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                />
-              ) : (
-                <span className="text-lg font-semibold text-gray-500">{initials(a.name)}</span>
-              )}
-            </div>
+        {items.map((a) => {
+          const name = a.name || "";
+          const slug = (a.slug && a.slug !== "undefined" && a.slug.trim()) || slugify(name);
+          const href = `/authors/${encodeURIComponent(slug)}`;
 
-            <h2 className="text-lg font-semibold group-hover:text-blue-600">{a.name}</h2>
-            <p className="text-sm text-gray-500 mt-1">{a.bookCount || 0} tựa sách</p>
-          </Link>
-        ))}
+          return (
+            <Link
+              key={slug}
+              to={href}
+              className="group bg-white rounded-2xl border shadow-sm hover:shadow-lg transition overflow-hidden p-6 flex flex-col items-center text-center"
+            >
+              <div className="w-20 h-20 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center shadow mb-4">
+                {(a.avatar || a.avatarUrl) ? (
+                  <img
+                    src={a.avatar || a.avatarUrl}
+                    alt={name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    onError={(e) => (e.currentTarget.src = "/placeholder.png")}
+                  />
+                ) : (
+                  <span className="text-lg font-semibold text-gray-500">{initials(name)}</span>
+                )}
+              </div>
+
+              <h2 className="text-lg font-semibold group-hover:text-blue-600">{name}</h2>
+              <p className="text-sm text-gray-500 mt-1">{a.bookCount || 0} tựa sách</p>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
