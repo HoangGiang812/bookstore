@@ -1,51 +1,64 @@
+// services/repos/authorsRepo.js
 import mongoose from 'mongoose';
 import Author from '../../models/Author.js';
-import Book from '../../models/Book.js';
 import { slugify } from '../../utils/slug.js';
 
-const mapAuthor = (a) => ({
-  id: a._id?.toString() ?? a.id,
-  name: a.name ?? a.fullName ?? a.displayName ?? 'Unknown',
-  avatar: a.avatarUrl ?? a.avatar ?? a.photoUrl ?? null,
-  slug: a.slug ?? slugify(a.name ?? a.fullName ?? a.displayName ?? ''),
-  bookCount: a.bookCount ?? 0,
-});
+// Bật proxy ảnh qua env nếu bạn đã có router /api/images/proxy
+const USE_IMAGE_PROXY = process.env.USE_IMAGE_PROXY === '1';
 
-function lookupBooksPipeline() {
-  return [
-    {
-      $lookup: {
-        from: 'books',
-        let: { aid: '$_id', slug: '$slug', name: '$name' },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $or: [
-                  // Theo ObjectId
-                  { $in: ['$$aid', { $ifNull: ['$authorIds', []] }] },
-                  { $eq: ['$authorId', '$$aid'] },
-                  { $in: ['$$aid', { $ifNull: ['$authors.authorId', []] }] },
+// --- tiện ích: tạo URL proxy ảnh (chỉ cho http/https), giữ nguyên data URL ---
+function proxifyAvatar(url) {
+  if (!url) return null;
+  if (!/^https?:\/\//i.test(url)) return url; // data:... hoặc đường dẫn local => giữ nguyên
+  return USE_IMAGE_PROXY
+    ? `/api/images/proxy?u=${encodeURIComponent(url)}`
+    : url;
+}
 
-                  // Theo slug
-                  { $eq: ['$authorSlug', '$$slug'] },
-                  { $in: ['$$slug', { $ifNull: ['$authorSlugs', []] }] },
-                  { $in: ['$$slug', { $ifNull: ['$authors.slug', []] }] },
+// Gom key ảnh về một đầu mối
+function pickRawAvatar(a) {
+  return a.avatarUrl ?? a.avatar ?? a.photoUrl ?? null;
+}
 
-                  // Theo name (fallback)
-                  { $eq: ['$author', '$$name'] },
-                  { $in: ['$$name', { $ifNull: ['$authorNames', []] }] },
-                ],
-              },
-            },
-          },
-          { $count: 'count' },
-        ],
-        as: 'bookStats',
-      },
-    },
-    { $addFields: { bookCount: { $ifNull: [{ $first: '$bookStats.count' }, 0] } } },
-  ];
+// Chuẩn hoá output cho FE: trả CẢ avatar (để render) và avatarUrl (gốc)
+const mapAuthor = (a) => {
+  const rawAvatar = pickRawAvatar(a);
+  return {
+    id: a._id?.toString() ?? a.id,
+    name: a.name ?? a.fullName ?? a.displayName ?? 'Unknown',
+    avatar: proxifyAvatar(rawAvatar),   // FE nên dùng field này cho <img src=...>
+    avatarUrl: rawAvatar,               // giữ nguyên gốc (http/data URL)
+    slug: a.slug ?? slugify(a.name ?? a.fullName ?? a.displayName ?? ''),
+    bio: a.bio ?? '',
+    website: a.website ?? '',
+    socials: a.socials ?? {},
+    bookCount: a.bookCount ?? 0,
+  };
+};
+
+// -------- helper: sinh slug duy nhất ----------
+async function makeUniqueAuthorSlug(nameOrSlug) {
+  const base = slugify(nameOrSlug || '');
+  if (!base) return '';
+  let slug = base;
+  let i = 1;
+  while (await Author.exists({ slug })) {
+    i += 1;
+    slug = `${base}-${i}`;
+  }
+  return slug;
+}
+
+// ----- tìm trùng theo slug gốc hoặc tên (không phân biệt hoa thường) -----
+async function findExistingAuthorByNameOrSlug(name) {
+  if (!name) return null;
+  const baseSlug = slugify(name);
+  return Author.findOne({
+    $or: [
+      { slug: baseSlug },
+      { name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } },
+    ],
+  });
 }
 
 export async function listAuthors({ limit = 50, start = 0, q = '' }) {
@@ -64,7 +77,6 @@ export async function listAuthors({ limit = 50, start = 0, q = '' }) {
     { $match: match },
     { $skip: start },
     { $limit: take },
-    ...lookupBooksPipeline(),
   ]);
 
   return rows.slice(0, limit).map(mapAuthor);
@@ -72,24 +84,101 @@ export async function listAuthors({ limit = 50, start = 0, q = '' }) {
 
 export async function getAuthorById(id) {
   if (!mongoose.Types.ObjectId.isValid(id)) return null;
-  const oid = new mongoose.Types.ObjectId(id);
-
-  const rows = await Author.aggregate([
-    { $match: { _id: oid } },
-    ...lookupBooksPipeline(),
-    { $limit: 1 },
-  ]);
-
-  if (!rows.length) return null;
-  return mapAuthor(rows[0]);
+  const doc = await Author.findById(id);
+  if (!doc) return null;
+  return mapAuthor(doc.toObject());
 }
 
 export async function getAuthorBySlug(slug) {
-  const rows = await Author.aggregate([
-    { $match: { slug } },
-    ...lookupBooksPipeline(),
-    { $limit: 1 },
-  ]);
-  if (!rows.length) return null;
-  return mapAuthor(rows[0]);
+  const doc = await Author.findOne({ slug });
+  if (!doc) return null;
+  return mapAuthor(doc.toObject());
+}
+
+// ---- CREATE (Upsert): nếu trùng thì cập nhật field gửi lên thay vì tạo mới ----
+export async function createAuthor(payload = {}) {
+  const { name, slug, avatarUrl, bio, website, socials } = payload;
+  if (!name?.trim()) throw new Error('Name is required');
+
+  // kiểm tra trùng theo name/slug
+  const existed = await findExistingAuthorByNameOrSlug(name.trim());
+
+  if (existed) {
+    let changed = false;
+    if (avatarUrl !== undefined && avatarUrl !== existed.avatarUrl) {
+      existed.avatarUrl = avatarUrl || null; changed = true;
+    }
+    if (bio !== undefined && bio !== existed.bio) {
+      existed.bio = bio || ''; changed = true;
+    }
+    if (website !== undefined && website !== existed.website) {
+      existed.website = website || ''; changed = true;
+    }
+    if (socials !== undefined) {
+      existed.socials = socials || {}; changed = true;
+    }
+    if (slug?.trim() && slug.trim() !== existed.slug) {
+      existed.slug = await makeUniqueAuthorSlug(slug.trim()); changed = true;
+    }
+    if (changed) await existed.save();
+    const out = mapAuthor(existed.toObject());
+    out._existed = true; // cho FE biết là đã tồn tại
+    return out;
+  }
+
+  // tạo mới
+  const finalSlug = slug?.trim()
+    ? await makeUniqueAuthorSlug(slug)
+    : await makeUniqueAuthorSlug(name);
+
+  const doc = await Author.create({
+    name: String(name).trim(),
+    slug: finalSlug,
+    avatarUrl: avatarUrl || null,
+    bio: bio || '',
+    website: website || '',
+    socials: socials || {},
+  });
+
+  return mapAuthor(doc.toObject());
+}
+
+export async function updateAuthor(idOrSlug, payload = {}) {
+  const query = mongoose.Types.ObjectId.isValid(idOrSlug)
+    ? { _id: new mongoose.Types.ObjectId(idOrSlug) }
+    : { slug: String(idOrSlug) };
+
+  const doc = await Author.findOne(query);
+  if (!doc) throw new Error('Author not found');
+
+  const prevName = doc.name;
+
+  if (payload.name !== undefined) doc.name = String(payload.name || '').trim();
+  if (payload.avatarUrl !== undefined) doc.avatarUrl = payload.avatarUrl || null;
+  if (payload.bio !== undefined) doc.bio = payload.bio || '';
+  if (payload.website !== undefined) doc.website = payload.website || '';
+  if (payload.socials !== undefined) doc.socials = payload.socials || {};
+
+  // nếu client không gửi slug mới nhưng đổi name → tự cập nhật slug (khi slug hiện tại là slug theo tên cũ)
+  if (payload.slug !== undefined) {
+    const requested = String(payload.slug || '').trim() || slugify(doc.name);
+    if (requested !== doc.slug) {
+      doc.slug = await makeUniqueAuthorSlug(requested);
+    }
+  } else if (payload.name !== undefined && slugify(prevName) === doc.slug) {
+    doc.slug = await makeUniqueAuthorSlug(doc.name);
+  }
+
+  await doc.save();
+  return mapAuthor(doc.toObject());
+}
+
+export async function deleteAuthor(idOrSlug) {
+  const query = mongoose.Types.ObjectId.isValid(idOrSlug)
+    ? { _id: new mongoose.Types.ObjectId(idOrSlug) }
+    : { slug: String(idOrSlug) };
+
+  const doc = await Author.findOneAndDelete(query);
+  if (!doc) throw new Error('Author not found');
+  return { id: doc._id.toString(), slug: doc.slug };
 }

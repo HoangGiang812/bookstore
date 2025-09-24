@@ -5,12 +5,11 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import './services/db.js';
-import './utils/patchJson.js'; // Date JSON
+import './utils/patchJson.js';
 import { notFound, errorHandler } from './middlewares/error.js';
 import { attachUserFromToken } from './middlewares/auth.js';
 import bookRoutes from './routes/books.js';
 import authorRoutes from './routes/authors.js';
-// routes
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
 import publicRoutes from './routes/public.js';
@@ -20,11 +19,12 @@ import wishlistRoutes from './routes/wishlist.js';
 import newsletterRoutes from './routes/newsletter.js';
 import contactRoutes from './routes/contact.js';
 import adminRoutes from './routes/admin/index.js';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import categoriesRouter from "./routes/categories.js";
+import uploadRouter from "./routes/uploads.js";
+import path from 'node:path';
 
 const app = express();
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(helmet());
 app.use(morgan('dev'));
@@ -33,11 +33,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 app.use(attachUserFromToken);
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
 app.get('/health', (_, res) => res.json({ ok: true }));
+
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/public', publicRoutes);
@@ -47,9 +44,14 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api/books', bookRoutes);    
+app.use('/api/books', bookRoutes);
 app.use('/api/authors', authorRoutes);
 app.use("/api/categories", categoriesRouter);
+app.use("/api/upload", uploadRouter);
+
+// ✅ Serve static UPLOADS – chỉ 1 dòng, thống nhất với uploadRouter
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
 app.use(notFound);
 app.use(errorHandler);
 

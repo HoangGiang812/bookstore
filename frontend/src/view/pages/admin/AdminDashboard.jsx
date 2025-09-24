@@ -7,7 +7,7 @@ import {
 import api from '@/services/api';
 import { useAuth } from '@/store/useAuth';
 import ProductsPage from './ProductsPage';
-
+import AuthorsPage from './AuthorsPage';
 const fmt = (n) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(n || 0));
 const badge = (s) => ({
   available: 'text-green-600 bg-green-100',
@@ -162,22 +162,56 @@ export default function AdminDashboard() {
     await loadOrders(); await loadDashboard();
   };
 
-  // ---------- LOGOUT ----------
-  const handleLogout = async () => {
+const handleLogout = async () => {
   try {
-    await api.post('/auth/logout', {}, { withCredentials: true });
+    await api.post('/auth/logout', {});
   } catch (e) {
-    console.error('logout error', e);
-  } finally {
-    try { localStorage.removeItem('accessToken'); } catch {}
-    try { localStorage.removeItem('refreshToken'); } catch {}
-    try { sessionStorage.clear(); } catch {}
-    try { delete api.defaults.headers.common.Authorization; } catch {}
-    try { authLogout?.(); } catch {}     // gọi logout trong store nếu có
-    try { setUser?.(null); } catch {}    // clear user state
-    if (typeof window !== 'undefined') window.location.replace('/login');
+    console.warn('logout api failed (ignored):', e?.message);
   }
+  try {
+    const removeKeys = [
+      'accessToken',
+      'refreshToken',
+      'auth',
+      'auth_tokens',
+      'tokens',
+      'user',
+      'persist:root',
+      'bookstore_data_v1',
+    ];
+    removeKeys.forEach((k) => {
+      try { localStorage.removeItem(k); } catch {}
+    });
+    try {
+      const wrap = JSON.parse(localStorage.getItem('bookstore_data_v1') || '{}');
+      if (wrap && typeof wrap === 'object') {
+        delete wrap.tokens;
+        localStorage.setItem('bookstore_data_v1', JSON.stringify(wrap));
+      }
+    } catch {}
+
+    // Xoá session
+    try { sessionStorage.clear(); } catch {}
+
+    // Xoá cookie (nếu BE từng set httpOnly sẽ do server xoá; còn cookie thường thì tự xoá)
+    try {
+      document.cookie.split(';').forEach((c) => {
+        const name = c.split('=')[0].trim();
+        if (!name) return;
+        document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+      });
+    } catch {}
+  } catch {}
+
+  // Reset state trong store
+  try { authLogout?.(); } catch {}
+  try { setUser?.(null); } catch {}
+
+  // Điều hướng + hard reload để chắc chắn UI không giữ cache state
+  try { window.location.replace('/login'); } catch {}
+  setTimeout(() => { try { window.location.reload(); } catch {} }, 50);
 };
+
   // --------- Overview ---------
   const stats = {
     totalBooks: kpi?.totals?.totalBooks || 0,
@@ -421,8 +455,9 @@ export default function AdminDashboard() {
   const renderActiveTab = () => {
     switch (activeTab) {
       case 'overview': return <OverviewTab />;
-      case 'products': return <ProductsPage />; // trang quản lý sản phẩm tách riêng
+      case 'products': return <ProductsPage />; 
       case 'orders': return <OrdersTab />;
+      case 'authors': return <AuthorsPage />;
       case 'payments': return <div className="text-gray-600">Tham chiếu Orders + Dashboard (nếu có Transactions API thì hiển thị tại đây).</div>;
       case 'coupons': return <CouponsTab />;
       case 'users': return <UsersTab />;
@@ -446,6 +481,7 @@ export default function AdminDashboard() {
             {[
               ['overview', 'Tổng quan', BarChart3],
               ['products', 'Quản lý sản phẩm', BookOpen],
+              ['authors', 'Tác giả', Users], 
               ['orders', 'Quản lý đơn hàng', ShoppingCart],
               ['payments', 'Thanh toán & Hoàn tiền', CreditCard],
               ['coupons', 'Khuyến mãi & Mã giảm giá', Gift],
