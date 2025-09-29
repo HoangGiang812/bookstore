@@ -86,7 +86,12 @@ router.delete('/:idOrSlug', requireAdmin, async (req, res, next) => {
   try {
     const ok = await deleteAuthor(req.params.idOrSlug);
     res.json(ok);
-  } catch (e) { next(e); }
+  } catch (e) {
+    if (e?.code === 'AUTHOR_HAS_BOOKS') {
+      return res.status(400).json({ message: e.message, code: e.code });
+    }
+    next(e);
+  }
 });
 
 export default router;

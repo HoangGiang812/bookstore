@@ -6,7 +6,6 @@ import { fetchAuthors } from "../../services/author";
 const initials = (name = "") =>
   name.trim().split(/\s+/).slice(-2).map(w => w[0]).join("").toUpperCase();
 
-// Fallback đề phòng item nào đó thiếu slug
 const slugify = (s = "") =>
   s.toLowerCase()
     .normalize("NFD").replace(/\p{Diacritic}/gu, "")
@@ -23,8 +22,7 @@ export default function Authors() {
     fetchAuthors(50, 0, "")
       .then((list) => {
         if (!ok) return;
-        const arr = Array.isArray(list) ? list : [];
-        setItems(arr);
+        setItems(Array.isArray(list) ? list : []);
       })
       .catch((e) => ok && setErr(e?.message || "Fetch authors failed"))
       .finally(() => ok && setLoading(false));
@@ -64,7 +62,7 @@ export default function Authors() {
               </div>
 
               <h2 className="text-lg font-semibold group-hover:text-blue-600">{name}</h2>
-              <p className="text-sm text-gray-500 mt-1">{a.bookCount || 0} tựa sách</p>
+              {/* ĐÃ XOÁ DÒNG “tựa sách” */}
             </Link>
           );
         })}

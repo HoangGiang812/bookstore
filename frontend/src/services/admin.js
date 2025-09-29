@@ -21,11 +21,17 @@ export const getBook = (id) =>
   api.get(`/admin/books/${id}`);
 
 export const createBook = (payload) => {
-  // Chỉ gửi các field cần thiết; không gửi slug/isbn/code (BE tự sinh)
+  // FE chỉ gửi các field cần thiết; BE tự xử lý authorName -> Author & bookCount
   const body = {
     ...payload,
+    // Chuẩn hoá dữ liệu gửi lên
+    title: String(payload?.title || '').trim(),
+    authorName: String(payload?.authorName || '').trim(),
+    price: Number(payload?.price || 0),
     discountPercent: Math.max(0, Number(payload?.discountPercent || 0)),
-    // Nếu không truyền status, BE có thể tự xét theo stock; nhưng ta vẫn ưu tiên truyền rõ ràng:
+    stock: Math.max(0, Number(payload?.stock || 0)),
+    coverUrl: String(payload?.coverUrl || '').trim(),
+    // Nếu không truyền status, BE tự suy theo stock; vẫn set rõ ràng:
     status:
       payload?.status === 'out-of-stock'
         ? 'out-of-stock'
@@ -37,7 +43,12 @@ export const createBook = (payload) => {
 export const updateBook = (id, payload) => {
   const body = {
     ...payload,
+    ...(payload?.title !== undefined ? { title: String(payload.title).trim() } : {}),
+    ...(payload?.authorName !== undefined ? { authorName: String(payload.authorName).trim() } : {}),
+    ...(payload?.price !== undefined ? { price: Math.max(0, Number(payload.price)) } : {}),
     discountPercent: Math.max(0, Number(payload?.discountPercent || 0)),
+    ...(payload?.stock !== undefined ? { stock: Math.max(0, Number(payload.stock)) } : {}),
+    ...(payload?.coverUrl !== undefined ? { coverUrl: String(payload.coverUrl).trim() } : {}),
     ...(payload?.status
       ? { status: payload.status === 'out-of-stock' ? 'out-of-stock' : 'available' }
       : {}),
@@ -47,8 +58,6 @@ export const updateBook = (id, payload) => {
 
 export const deleteBook = (id) =>
   api.delete(`/admin/books/${id}`);
-
-// (ĐÃ GỠ) importBooksCSV theo yêu cầu xóa Import CSV
 
 export const toggleBookFlags = (id, payload) =>
   api.patch(`/admin/books/${id}`, payload);
@@ -80,12 +89,26 @@ export const categories = {
   remove: (id) => api.delete(`/admin/categories/${id}`),
 };
 
+/**
+ * LƯU Ý: routes authors của BE là /api/authors (không phải /api/admin/authors)
+ * - list/search: GET /authors?q=...
+ * - get:        GET /authors/id/:id  hoặc GET /authors/:slug
+ * - create:     POST /authors        (yêu cầu quyền admin ở server)
+ * - update:     PATCH /authors/:idOrSlug
+ * - remove:     DELETE /authors/:idOrSlug
+ */
 export const authors = {
-  list: (params) => api.get('/admin/authors', { params }),
-  create: (payload) => api.post('/admin/authors', payload),
-  get: (id) => api.get(`/admin/authors/${id}`),
-  update: (id, payload) => api.patch(`/admin/authors/${id}`, payload),
-  remove: (id) => api.delete(`/admin/authors/${id}`),
+  // dùng cho autocomplete: params = { q, limit, start }
+  list: (params) => api.get('/authors', { params }),
+  search: (q, extra = {}) =>
+    api.get('/authors', { params: { q, ...(extra || {}) } }),
+  create: (payload) => api.post('/authors', payload),
+  // get theo id (phù hợp với FE hiện tại)
+  get: (id) => api.get(`/authors/id/${id}`),
+  // nếu bạn dùng slug:
+  getBySlug: (slug) => api.get(`/authors/${encodeURIComponent(slug)}`),
+  update: (idOrSlug, payload) => api.patch(`/authors/${idOrSlug}`, payload),
+  remove: (idOrSlug) => api.delete(`/authors/${idOrSlug}`),
 };
 
 export const publishers = {
@@ -112,7 +135,7 @@ export const orders = {
 
 export const rma = {
   list: (params) => api.get('/admin/rmas', { params }),
-  update: (id, payload) => api.patch(`/admin/rmas/${id}`, payload), // approve/deny/receive/restock/refund...
+  update: (id, payload) => api.patch(`/admin/rmas/${id}`, payload),
 };
 
 /* ===========================
@@ -159,6 +182,5 @@ export const pages = {
 
 export const settings = {
   get: () => api.get('/admin/settings'),
-  update: (payload) => api.put('/admin/settings', payload), // shipping, tax/fee, email templates...
+  update: (payload) => api.put('/admin/settings', payload),
 };
-  

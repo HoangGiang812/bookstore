@@ -7,7 +7,6 @@ import {
   BookOpen,
   Users,
   Calendar,
-  Award,
   Grid,
   List,
   Search,
@@ -18,7 +17,10 @@ const initials = (name = "") =>
   name.trim().split(/\s+/).slice(-2).map(w => w[0]).join("").toUpperCase();
 
 export default function AuthorDetail() {
-  const { id } = useParams();
+  // Hỗ trợ cả route /authors/:slug và /authors/:id
+  const { slug, id } = useParams();
+  const authorKey = slug ?? id;
+
   const [author, setAuthor] = useState(null);
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,43 +30,81 @@ export default function AuthorDetail() {
   const [sortBy, setSortBy] = useState("popularity");
   const [searchText, setSearchText] = useState("");
 
+  // unwrap cho hợp cả axios ({data}) và fetch (json)
+  const unwrap = (res) => (res && typeof res === "object" && "data" in res ? res.data : res) ?? null;
+
   useEffect(() => {
-    if (!id) return;
-    let ok = true;
-    Promise.all([
-      api.get(`/authors/${id}`),
-      api.get("/books", { params: { authorId: id, limit: 60, start: 0 } }),
-    ])
-      .then(([aRes, bRes]) => {
-        if (!ok) return;
-        setAuthor(aRes || null);
-        const list = Array.isArray(bRes?.items) ? bRes.items :
-          (Array.isArray(bRes) ? bRes : []);
-        setBooks(list);
-      })
-      .catch((e) => ok && setErr(e.message))
-      .finally(() => ok && setLoading(false));
-    return () => { ok = false; };
-  }, [id]);
+    if (!authorKey) return;
+    let alive = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        setErr("");
+
+        // 1) Lấy tác giả theo slug; nếu fail thử theo id
+        let authorRes;
+        try {
+          authorRes = await api.get(`/authors/${encodeURIComponent(authorKey)}`);
+        } catch {
+          authorRes = await api.get(`/authors/id/${encodeURIComponent(authorKey)}`);
+        }
+        if (!alive) return;
+
+        const a = unwrap(authorRes);
+        setAuthor(a || null);
+        if (!a?.name) {
+          setBooks([]);
+          return;
+        }
+
+        // 2) Lấy sách theo authorName; nếu BE chưa hỗ trợ, fallback q=authorName
+        let booksRes;
+        try {
+          booksRes = await api.get("/books", { params: { authorName: a.name, limit: 60, start: 0 } });
+        } catch {
+          booksRes = await api.get("/books", { params: { q: a.name, limit: 60, start: 0 } });
+        }
+        if (!alive) return;
+
+        const br = unwrap(booksRes);
+        const list = Array.isArray(br?.items) ? br.items : (Array.isArray(br) ? br : []);
+        setBooks(Array.isArray(list) ? list : []);
+      } catch (e) {
+        if (alive) setErr(e?.message || "Load author failed");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+
+    return () => { alive = false; };
+  }, [authorKey]);
 
   if (loading) return <div className="container px-4 py-12 text-center">⏳ Đang tải thông tin tác giả…</div>;
   if (err) return <div className="container px-4 py-12 text-red-600 text-center">Lỗi: {err}</div>;
   if (!author) return <div className="container px-4 py-12 text-center">Không tìm thấy tác giả</div>;
 
-  // lọc và sắp xếp
+  // Lọc & sắp xếp
   const filteredBooks = books.filter(b =>
     (filterCategory === "all" || b.category === filterCategory) &&
     (searchText === "" || b.title?.toLowerCase().includes(searchText.toLowerCase()))
   );
+
   const sortedBooks = [...filteredBooks].sort((a, b) => {
     switch (sortBy) {
       case "rating": return (b.rating || 0) - (a.rating || 0);
       case "price-low": return (a.price || 0) - (b.price || 0);
       case "price-high": return (b.price || 0) - (a.price || 0);
       case "newest": return (b.publishYear || 0) - (a.publishYear || 0);
-      default: return (b.reviews || 0) - (a.reviews || 0);
+      default: return (b.reviews || 0) - (a.reviews || 0); // popularity
     }
   });
+
+  // ✅ Hiển thị số tác phẩm: ưu tiên bookCount > 0, nếu không dùng books.length
+  const displayBookCount =
+    typeof author?.bookCount === "number" && author.bookCount > 0
+      ? author.bookCount
+      : books.length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -80,14 +120,13 @@ export default function AuthorDetail() {
           </div>
           <div className="flex-1">
             <h1 className="text-3xl font-bold mb-2">{author.name}</h1>
-            <p className="text-gray-600 mb-4">{(author.bookCount ?? books.length) || 0} tựa sách</p>
+            <p className="text-gray-600 mb-4">{displayBookCount} tựa sách</p>
             {author.bio && <p className="text-gray-500 leading-relaxed mb-4">{author.bio}</p>}
 
-            {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center p-3 bg-blue-50 rounded-lg">
                 <BookOpen className="w-5 h-5 text-blue-600 mx-auto mb-1" />
-                <div className="text-lg font-bold">{author.bookCount ?? books.length}</div>
+                <div className="text-lg font-bold">{displayBookCount}</div>
                 <div className="text-sm text-gray-600">Tác phẩm</div>
               </div>
               <div className="text-center p-3 bg-green-50 rounded-lg">

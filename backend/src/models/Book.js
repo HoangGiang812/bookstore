@@ -9,8 +9,14 @@ const BookSchema = new mongoose.Schema(
     image: String,
     coverUrl: String,
 
+    // Mã sách nội bộ (route tạo bằng randomCode)
+    code: { type: String, default: null },
+
     price: { type: Number, default: 0, min: 0 },
     discountPercent: { type: Number, default: 0, min: 0, max: 100 },
+
+    // Giá gốc suy ra từ discount
+    listPrice: { type: Number, default: null, min: 0 },
 
     stock: { type: Number, default: 0, min: 0 },
     status: { type: String, enum: ['available', 'out-of-stock'], default: 'available' },

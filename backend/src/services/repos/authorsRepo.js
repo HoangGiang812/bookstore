@@ -20,14 +20,14 @@ function pickRawAvatar(a) {
   return a.avatarUrl ?? a.avatar ?? a.photoUrl ?? null;
 }
 
-// Chuẩn hoá output cho FE: trả CẢ avatar (để render) và avatarUrl (gốc)
+// Chuẩn hoá output cho FE
 const mapAuthor = (a) => {
   const rawAvatar = pickRawAvatar(a);
   return {
     id: a._id?.toString() ?? a.id,
     name: a.name ?? a.fullName ?? a.displayName ?? 'Unknown',
-    avatar: proxifyAvatar(rawAvatar),   // FE nên dùng field này cho <img src=...>
-    avatarUrl: rawAvatar,               // giữ nguyên gốc (http/data URL)
+    avatar: proxifyAvatar(rawAvatar),
+    avatarUrl: rawAvatar,
     slug: a.slug ?? slugify(a.name ?? a.fullName ?? a.displayName ?? ''),
     bio: a.bio ?? '',
     website: a.website ?? '',
@@ -49,7 +49,7 @@ async function makeUniqueAuthorSlug(nameOrSlug) {
   return slug;
 }
 
-// ----- tìm trùng theo slug gốc hoặc tên (không phân biệt hoa thường) -----
+// ----- tìm trùng theo slug gốc hoặc tên (case-insensitive) -----
 async function findExistingAuthorByNameOrSlug(name) {
   if (!name) return null;
   const baseSlug = slugify(name);
@@ -60,6 +60,33 @@ async function findExistingAuthorByNameOrSlug(name) {
     ],
   });
 }
+
+/** ===== Helpers dùng chung cho Books routes ===== */
+export async function getOrCreateAuthorByName(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return null;
+  const existed = await Author.findOne({
+    name: { $regex: `^${raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' }
+  });
+  if (existed) return existed;
+  return Author.create({ name: raw, bookCount: 0, slug: slugify(raw) });
+}
+
+export async function incAuthorBookCountByName(name, delta = 1) {
+  const a = await getOrCreateAuthorByName(name);
+  if (!a) return null;
+  const res = await Author.findByIdAndUpdate(a._id, { $inc: { bookCount: delta } }, { new: true });
+  if (res.bookCount < 0) {
+    res.bookCount = 0;
+    await res.save();
+  }
+  return res;
+}
+
+export async function decAuthorBookCountByName(name, delta = 1) {
+  return incAuthorBookCountByName(name, -Math.abs(delta));
+}
+/** ===== End helpers ===== */
 
 export async function listAuthors({ limit = 50, start = 0, q = '' }) {
   const take = Math.min(500, start + limit + 50);
@@ -178,7 +205,15 @@ export async function deleteAuthor(idOrSlug) {
     ? { _id: new mongoose.Types.ObjectId(idOrSlug) }
     : { slug: String(idOrSlug) };
 
-  const doc = await Author.findOneAndDelete(query);
+  const doc = await Author.findOne(query);
   if (!doc) throw new Error('Author not found');
+
+  // BẢO VỆ: không cho xoá nếu còn sách
+  if (Number(doc.bookCount || 0) > 0) {
+    const err = new Error('Cannot delete author with existing books');
+    err.code = 'AUTHOR_HAS_BOOKS';
+    throw err;
+  }
+  await Author.deleteOne({ _id: doc._id });
   return { id: doc._id.toString(), slug: doc.slug };
 }

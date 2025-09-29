@@ -17,10 +17,14 @@ const AuthorSchema = new mongoose.Schema(
     bio: { type: String, default: '' },
     website: { type: String, default: '' },
     socials: { type: Object, default: {} },
-    bookCount: { type: Number, default: 0 },
+
+    // quan trọng: số lượng sách của tác giả
+    bookCount: { type: Number, default: 0, min: 0 },
   },
   { timestamps: true }
 );
+
+
 
 // Tự sinh slug nếu thiếu
 AuthorSchema.pre('save', function (next) {
