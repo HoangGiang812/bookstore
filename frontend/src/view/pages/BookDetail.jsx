@@ -20,7 +20,8 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const slugify = (s = "") =>
   s
     .toLowerCase()
-    .normalize("NFD").replace(/\p{Diacritic}/gu, "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
     .replace(/[^a-z0-9\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-")
@@ -50,20 +51,28 @@ export default function BookDetail() {
 
         // Thu gom danh sách tên tác giả từ nhiều khả năng (mảng/chuỗi/embedded)
         const namesFromArray =
-          Array.isArray(b.authorNames) ? b.authorNames :
-          (Array.isArray(b.authors) ? b.authors.map(x => x?.name || x?.fullName || x?.displayName).filter(Boolean) : []);
+          Array.isArray(b.authorNames)
+            ? b.authorNames
+            : Array.isArray(b.authors)
+            ? b.authors.map((x) => x?.name || x?.fullName || x?.displayName).filter(Boolean)
+            : [];
 
         const namesFromString =
           typeof b.author === "string"
-            ? b.author.split(",").map(s => s.trim()).filter(Boolean)
-            : (b.authorName ? [String(b.authorName)] : []);
+            ? b.author.split(",").map((s) => s.trim()).filter(Boolean)
+            : b.authorName
+            ? [String(b.authorName)]
+            : [];
 
         const authorNames = (namesFromArray.length ? namesFromArray : namesFromString).filter(Boolean);
 
         // Thu gom slug nếu có
         const slugsFromArray =
-          Array.isArray(b.authorSlugs) ? b.authorSlugs :
-          (Array.isArray(b.authors) ? b.authors.map(x => x?.slug).filter(Boolean) : []);
+          Array.isArray(b.authorSlugs)
+            ? b.authorSlugs
+            : Array.isArray(b.authors)
+            ? b.authors.map((x) => x?.slug).filter(Boolean)
+            : [];
 
         // Chuẩn hoá cặp {name, slug}
         const authors = authorNames.map((name, i) => {
@@ -79,16 +88,16 @@ export default function BookDetail() {
         });
 
         // Lấy "tác giả hiển thị" (dòng đơn) và slug đầu tiên để tương thích UI cũ
-        const authorDisplay = authors.map(a => a.name).join(", ");
+        const authorDisplay = authors.map((a) => a.name).join(", ");
         const firstAuthorSlug = authors[0]?.slug || "";
 
         // Chuẩn hóa tối thiểu các field để render an toàn
         const normalized = {
           id: b._id || b.id,
           title: b.title,
-          author: authorDisplay,           // dòng hiển thị gộp
-          authorSlug: firstAuthorSlug,     // slug tác giả đầu tiên (giữ để không vỡ UI cũ)
-          authors,                         // <-- mảng tác giả {name, slug} để render link
+          author: authorDisplay, // dòng hiển thị gộp
+          authorSlug: firstAuthorSlug, // slug tác giả đầu tiên (giữ để không vỡ UI cũ)
+          authors, // <-- mảng tác giả {name, slug} để render link
           image: b.coverUrl || b.image,
           price: Number(b.salePrice ?? b.price ?? 0),
           originalPrice:
@@ -108,6 +117,10 @@ export default function BookDetail() {
           ratingCount: Number(b.ratingCount ?? b.reviewsCount ?? 0),
           stock: Number(b.stock ?? 0),
           description: b.description || "",
+
+          // ✅ BỔ SUNG để snapshot khi add cart (tuỳ BE)
+          categoryIds: Array.isArray(b.categoryIds) ? b.categoryIds : [],
+          categoryId: b.categoryId || (Array.isArray(b.categoryIds) ? b.categoryIds[0] : null),
         };
         setBook(normalized);
 
@@ -173,14 +186,32 @@ export default function BookDetail() {
     };
   }, [id]);
 
-  const hasDiscount =
-    book && book.originalPrice > book.price && book.originalPrice > 0;
+  const hasDiscount = book && book.originalPrice > book.price && book.originalPrice > 0;
 
   const stockPercent = useMemo(() => {
     if (!book) return 0;
     const cap = Math.max(10, book.stock || 0);
     return clamp(((book.stock || 0) / cap) * 100, 0, 100);
   }, [book]);
+
+  // ✅ handler thêm vào giỏ: tự redirect nếu chưa đăng nhập
+  const handleAddToCart = () => {
+    if (!book) return;
+    try {
+      if (!user) {
+        nav(`/login?next=${encodeURIComponent(`/book/${id}`)}`);
+        return;
+      }
+      cart.add(book, Math.max(1, qty));
+    } catch (e) {
+      const msg = String(e?.message || "");
+      if (msg.includes("Cần đăng nhập") || msg.toLowerCase().includes("unauthorized")) {
+        nav(`/login?next=${encodeURIComponent(`/book/${id}`)}`);
+      } else {
+        alert(msg || "Không thể thêm vào giỏ");
+      }
+    }
+  };
 
   if (loading || !book) {
     return (
@@ -222,9 +253,7 @@ export default function BookDetail() {
 
         {/* RIGHT: info */}
         <div>
-          <h1 className="text-3xl lg:text-4xl font-extrabold mb-2">
-            {book.title}
-          </h1>
+          <h1 className="text-3xl lg:text-4xl font-extrabold mb-2">{book.title}</h1>
 
           <p className="mb-3 text-gray-600">
             <span className="text-gray-500">Tác giả:</span>{" "}
@@ -262,27 +291,20 @@ export default function BookDetail() {
           <div className="flex items-center gap-2 mb-4">
             <Stars value={book.rating} />
             <span className="text-gray-600">
-              {book.rating?.toFixed ? book.rating.toFixed(1) : book.rating} ·{" "}
-              {book.ratingCount || 0} đánh giá
+              {book.rating?.toFixed ? book.rating.toFixed(1) : book.rating} · {book.ratingCount || 0} đánh giá
             </span>
           </div>
 
           {/* Price row */}
           <div className="flex items-center gap-4 mb-3">
-            <span className="text-3xl font-extrabold text-rose-600">
-              {toVND(book.price)}
-            </span>
+            <span className="text-3xl font-extrabold text-rose-600">{toVND(book.price)}</span>
             {hasDiscount && (
               <>
-                <span className="line-through text-gray-500">
-                  {toVND(book.originalPrice)}
-                </span>
+                <span className="line-through text-gray-500">{toVND(book.originalPrice)}</span>
                 <span className="px-3 py-1 rounded-full bg-rose-100 text-rose-600 font-semibold text-sm">
                   -
                   {book.discountPercent ??
-                    Math.round(
-                      ((book.originalPrice - book.price) / book.originalPrice) * 100
-                    )}
+                    Math.round(((book.originalPrice - book.price) / book.originalPrice) * 100)}
                   %
                 </span>
               </>
@@ -311,37 +333,41 @@ export default function BookDetail() {
             </div>
           </div>
 
-          {/* Qty + add to cart */}
-          <div className="flex items-center gap-4 mb-5">
+          {/* Qty + actions */}
+          <div className="flex items-center flex-wrap gap-4 mb-5">
             <div className="flex items-center border rounded-xl overflow-hidden">
-              <button
-                onClick={() => setQty((q) => clamp(q - 1, 1, 999))}
-                className="p-3 hover:bg-gray-50"
-              >
+              <button onClick={() => setQty((q) => clamp(q - 1, 1, 999))} className="p-3 hover:bg-gray-50">
                 <Minus size={16} />
               </button>
-              <span className="px-4 min-w-[2ch] text-center font-semibold">
-                {qty}
-              </span>
-              <button
-                onClick={() => setQty((q) => clamp(q + 1, 1, 999))}
-                className="p-3 hover:bg-gray-50"
-              >
+              <span className="px-4 min-w-[2ch] text-center font-semibold">{qty}</span>
+              <button onClick={() => setQty((q) => clamp(q + 1, 1, 999))} className="p-3 hover:bg-gray-50">
                 <Plus size={16} />
               </button>
             </div>
 
+            {/* ✅ Thêm vào giỏ: tự redirect nếu chưa đăng nhập */}
             <button
-              onClick={() => cart.add(book, qty)}
+              onClick={handleAddToCart}
               className="inline-flex items-center gap-2 px-5 py-3 rounded-xl text-white shadow-sm hover:shadow transition"
-              style={{
-                background: "linear-gradient(90deg, #3A59D1, #3D90D7)",
-                textShadow: "0 1px 1px rgba(0,0,0,.25)",
-              }}
+              style={{ background: "linear-gradient(90deg, #3A59D1, #3D90D7)", textShadow: "0 1px 1px rgba(0,0,0,.25)" }}
               disabled={book.stock <= 0}
               title={book.stock <= 0 ? "Hết hàng" : "Thêm vào giỏ"}
             >
               <ShoppingCart size={18} /> Thêm vào giỏ
+            </button>
+
+            {/* ✅ MUA NGAY */}
+            <button
+              onClick={() => {
+                if (!user) return nav(`/login?next=${encodeURIComponent("/cart")}`);
+                cart.add(book, Math.max(1, qty));
+                nav("/cart");
+              }}
+              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border hover:bg-gray-50"
+              disabled={book.stock <= 0}
+              title={book.stock <= 0 ? "Hết hàng" : "Mua ngay"}
+            >
+              Mua ngay
             </button>
 
             <button className="inline-flex items-center gap-2 px-3 py-3 rounded-xl hover:bg-gray-100">
@@ -350,11 +376,7 @@ export default function BookDetail() {
           </div>
 
           {/* Description */}
-          {book.description && (
-            <p className="text-gray-700 leading-relaxed">
-              {book.description}
-            </p>
-          )}
+          {book.description && <p className="text-gray-700 leading-relaxed">{book.description}</p>}
         </div>
       </div>
 
@@ -383,9 +405,7 @@ function Stars({ value = 0 }) {
       {[...Array(5)].map((_, i) => (
         <Star
           key={i}
-          className={`w-4 h-4 ${
-            i < n ? "fill-yellow-400 text-yellow-400" : "text-gray-300"
-          }`}
+          className={`w-4 h-4 ${i < n ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
         />
       ))}
     </div>
@@ -408,19 +428,13 @@ function RelatedCard({ b }) {
           onError={(e) => (e.currentTarget.src = "/placeholder.jpg")}
         />
       </div>
-      <div className="text-sm text-gray-500 mb-1 line-clamp-1">
-        {b.author || "—"}
-      </div>
+      <div className="text-sm text-gray-500 mb-1 line-clamp-1">{b.author || "—"}</div>
       <div className="font-semibold leading-snug line-clamp-2 mb-2 group-hover:text-indigo-700">
         {b.title}
       </div>
       <div className="flex items-center gap-2">
         <span className="text-rose-600 font-bold">{toVND(b.price)}</span>
-        {hasDiscount && (
-          <span className="line-through text-xs text-gray-500">
-            {toVND(b.originalPrice)}
-          </span>
-        )}
+        {hasDiscount && <span className="line-through text-xs text-gray-500">{toVND(b.originalPrice)}</span>}
       </div>
     </Link>
   );

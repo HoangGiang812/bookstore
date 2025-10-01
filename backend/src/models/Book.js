@@ -9,13 +9,10 @@ const BookSchema = new mongoose.Schema(
     image: String,
     coverUrl: String,
 
-    // Mã sách nội bộ (route tạo bằng randomCode)
     code: { type: String, default: null },
 
     price: { type: Number, default: 0, min: 0 },
     discountPercent: { type: Number, default: 0, min: 0, max: 100 },
-
-    // Giá gốc suy ra từ discount
     listPrice: { type: Number, default: null, min: 0 },
 
     stock: { type: Number, default: 0, min: 0 },
@@ -26,7 +23,7 @@ const BookSchema = new mongoose.Schema(
     publishYear: Number,
 
     authorIds: [mongoose.Schema.Types.ObjectId],
-    categoryIds: [mongoose.Schema.Types.ObjectId],
+    categoryIds: [mongoose.Schema.Types.ObjectId],     // dùng mảng
     publisherId: { type: mongoose.Schema.Types.ObjectId, default: null },
     tags: [String],
     slug: String,
@@ -46,18 +43,25 @@ const BookSchema = new mongoose.Schema(
       }
     },
     toObject: { virtuals: true },
+    collection: 'books',
   }
 );
 
-// Virtual salePrice
+// Giá sau giảm
 BookSchema.virtual('salePrice').get(function () {
   const base = Number(this.price || 0);
   const off = Math.max(0, Math.min(100, Number(this.discountPercent || 0)));
   return Math.round(base * (1 - off / 100));
 });
 
+// Virtual categoryId (first of categoryIds)
+BookSchema.virtual('categoryId').get(function () {
+  return Array.isArray(this.categoryIds) && this.categoryIds.length ? this.categoryIds[0] : null;
+});
+
+// Cập nhật status khi stock đổi
 BookSchema.pre('save', function (next) {
-  if (!this.isModified('status')) {
+  if (this.isModified('stock')) {
     this.status = Number(this.stock) > 0 ? 'available' : 'out-of-stock';
   }
   next();

@@ -1,9 +1,70 @@
-import { load, save } from './storage'
-const k = (u)=>'cart_'+u;
-export const getCart = (u)=> load(k(u), []);
-export const addToCart = (u,book,qty=1)=>{ const c=getCart(u); const e=c.find(i=>i.id===book.id); let nw; if(e){ nw=c.map(i=>i.id===book.id?{...i,quantity:i.quantity+qty}:i);} else { nw=[{...book,quantity:qty},...c]; } save(k(u),nw); return nw; };
-export const updateCart = (u,id,qty)=>{ const c=getCart(u); const nw = qty<=0 ? c.filter(i=>i.id!==id) : c.map(i=>i.id===id?{...i,quantity:qty}:i); save(k(u),nw); return nw; };
-export const clearCart = (u)=>{ save(k(u), []); return []; };
-export const removeFromCart = (u,id)=>{ const c=getCart(u).filter(i=>i.id!==id); save(k(u),c); return c; };
-export const applyCoupon = (code,subtotal)=>{ const map={'GIAM10':0.9,'FREESHIP300':1}; const rate=map[code]??1; return {valid: rate!==1, total: Math.round(subtotal*rate)}; };
-export const shippingFee = (subtotal)=> subtotal>=300000?0:30000;
+// src/services/cart.js
+import { load, save } from '../view/services/storage'; // nếu file này ở src/services thì đổi path phù hợp
+
+const keyFor = (uid) => (uid ? `cart_${uid}` : 'cart_guest');
+
+export const getCart = (uid) => load(keyFor(uid), []);
+
+export const addToCart = (uid, book, qty = 1) => {
+  const id = book._id || book.id;
+  if (!id) throw new Error('Thiếu book id');
+
+  const item = {
+    id,
+    bookId: id,
+    title: book.title,
+    price: Number(book.salePrice ?? book.price ?? 0),
+    image: book.image || book.coverUrl || '/placeholder.png',
+    categoryId:
+      book.categoryId ||
+      (Array.isArray(book.categoryIds) ? book.categoryIds[0] : null),
+    quantity: Math.max(1, Number(qty || 1)),
+  };
+
+  const list = getCart(uid);
+  const idx = list.findIndex((i) => (i.id || i.bookId) === id);
+  let next;
+  if (idx >= 0) {
+    next = list.map((i) =>
+      (i.id || i.bookId) === id
+        ? { ...i, quantity: Math.min(999, Number(i.quantity || 0) + item.quantity) }
+        : i
+    );
+  } else {
+    next = [item, ...list];
+  }
+  save(keyFor(uid), next);
+  return next;
+};
+
+export const updateCart = (uid, id, qty) => {
+  const n = Math.max(0, Number(qty || 0));
+  const list = getCart(uid);
+  const next = n <= 0
+    ? list.filter((i) => (i.id || i.bookId) !== id)
+    : list.map((i) =>
+        (i.id || i.bookId) === id ? { ...i, quantity: Math.max(1, n) } : i
+      );
+  save(keyFor(uid), next);
+  return next;
+};
+
+export const clearCart = (uid) => { save(keyFor(uid), []); return []; };
+
+export const removeFromCart = (uid, id) => {
+  const next = getCart(uid).filter((i) => (i.id || i.bookId) !== id);
+  save(keyFor(uid), next);
+  return next;
+};
+
+// Helpers hiển thị (BE sẽ tính lại khi checkout)
+export const calcSubtotal = (items) =>
+  (items || []).reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
+
+export const shippingFee = (subtotal) => (Number(subtotal) >= 300000 ? 0 : 30000);
+
+export const applyCoupon = (code, subtotal) => {
+  const map = { GIAM10: 0.9, FREESHIP300: 1 };
+  const rate = map[String(code || '').toUpperCase()] || 1;
+  return { valid: rate !== 1, total: Math.round(Number(subtotal || 0) * rate) };
+};

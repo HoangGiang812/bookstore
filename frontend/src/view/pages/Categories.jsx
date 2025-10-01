@@ -1,10 +1,13 @@
+// src/view/pages/Categories.jsx
 import { useState, useMemo, useEffect } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { Search, Grid, List } from "lucide-react";
 import api from "../../services/api";
-import DealCard from "../components/DealCard"; // dùng card giống phần yêu thích
+import DealCard from "../components/DealCard";
+import { useCart } from "../../store/useCart";      // ✅ thêm
+import { useAuth } from "../../store/useAuth";      // ✅ thêm
 
-/* ===== Helpers giữ nguyên theo code của bạn ===== */
+/* ===== Helpers ===== */
 const extractItems = (payload) => {
   if (!payload) return [];
   if (Array.isArray(payload)) return payload;
@@ -17,6 +20,7 @@ const extractItems = (payload) => {
   }
   return [];
 };
+
 const BOOK_ENDPOINTS = ["/books", "/book", "/public/books", "/store/books", "/products"];
 async function fetchBooksWithFallback(params) {
   let lastErr;
@@ -25,13 +29,25 @@ async function fetchBooksWithFallback(params) {
       const res = await api.get(path, { params });
       const items = extractItems(res);
       return { items, usedPath: path };
-    } catch (e) { lastErr = e; }
+    } catch (e) {
+      lastErr = e;
+    }
   }
   throw lastErr || new Error("Không tìm thấy endpoint sách phù hợp");
 }
+
 const normalize = (s = "") =>
-  String(s).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  String(s)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+// ép string "320.000đ" -> 320000
+const toNumber = (v) =>
+  typeof v === "number" ? v : typeof v === "string" ? Number(v.replace(/[^\d]/g, "")) || 0 : 0;
+
 function mapBook(b) {
   const categoryObj = b.category || b.categoryId || b.categoryRef || null;
   const catName =
@@ -39,22 +55,26 @@ function mapBook(b) {
     b.categoryName ||
     (Array.isArray(b.categories) ? b.categories[0]?.name : b.category) ||
     "Khác";
+
+  const price = toNumber(b?.price?.sale ?? b?.salePrice ?? b?.price);
+  const original = toNumber(b?.price?.value ?? b?.originalPrice ?? b?.price);
+
   return {
-    id: b._id || b.id,
-    title: b.title || b.name,
+    id: b._id || b.id || b.bookId, // ✅ đảm bảo có id
+    title: b.title || b.name || "—",
     author:
       b.author?.name ||
       b.authorName ||
       (Array.isArray(b.authors) ? b.authors[0]?.name : b.author) ||
       "—",
-    price: b.price?.sale ?? b.price?.value ?? b.salePrice ?? b.price ?? 0,
-    originalPrice: b.price?.value ?? b.originalPrice ?? b.price ?? 0,
+    price,
+    originalPrice: original,
     rating: b.ratingAverage ?? b.rating ?? 0,
     reviewCount: b.reviewsCount ?? b.reviewCount ?? 0,
     discount:
-      b.discount ??
-      (b.price?.value && b.price?.sale
-        ? Math.round((1 - b.price.sale / b.price.value) * 100)
+      toNumber(b.discount) ||
+      (original > 0 && price > 0 && original > price
+        ? Math.round(((original - price) / original) * 100)
         : 0),
     category: catName,
     categorySlug: categoryObj?.slug || b.categorySlug || normalize(catName),
@@ -87,6 +107,10 @@ export default function Categories() {
   const [page, setPage] = useState(1);
 
   const [sp] = useSearchParams();
+  const cart = useCart();                 // ✅ store
+  const { user } = useAuth();             // ✅ auth
+  const nav = useNavigate();              // ✅ nav
+
   useEffect(() => {
     const by = sp.get("by");
     const value = sp.get("value");
@@ -105,7 +129,8 @@ export default function Categories() {
       try {
         const res = await api.get("/categories", { params: { active: true } });
         const items =
-          res?.items || res?.data?.items ||
+          res?.items ||
+          res?.data?.items ||
           (Array.isArray(res) ? res : []) ||
           (Array.isArray(res?.data) ? res.data : []);
         const mapped = items
@@ -114,7 +139,9 @@ export default function Categories() {
         if (!cancelled) setCategories([{ slug: "all", name: "Tất cả" }, ...mapped]);
       } catch {}
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Load sách
@@ -145,7 +172,9 @@ export default function Categories() {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [search, sort, catSlug]);
 
   // Lọc client
@@ -164,10 +193,17 @@ export default function Categories() {
     if (search) f = f.filter((b) => (b.title + b.author).toLowerCase().includes(search.toLowerCase()));
 
     switch (sort) {
-      case "price-asc":  f.sort((a, b) => a.price - b.price); break;
-      case "price-desc": f.sort((a, b) => b.price - a.price); break;
-      case "bestseller": f.sort((a, b) => (b.soldCount || 0) - (a.soldCount || 0)); break;
-      default:           f.sort((a, b) => (b.publishYear || 0) - (a.publishYear || 0));
+      case "price-asc":
+        f.sort((a, b) => a.price - b.price);
+        break;
+      case "price-desc":
+        f.sort((a, b) => b.price - a.price);
+        break;
+      case "bestseller":
+        f.sort((a, b) => (b.soldCount || 0) - (a.soldCount || 0));
+        break;
+      default:
+        f.sort((a, b) => (b.publishYear || 0) - (a.publishYear || 0));
     }
     return f;
   }, [books, catSlug, author, rating, search, sort]);
@@ -179,6 +215,18 @@ export default function Categories() {
     const start = (page - 1) * PER_PAGE;
     return filtered.slice(start, start + PER_PAGE);
   }, [filtered, page]);
+
+  // ✅ handlers cho DealCard
+  const handleAdd = (bk) => {
+    // nếu chưa đăng nhập → sang login, quay lại trang hiện tại
+    if (!user) return nav(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    cart.add(bk, 1);
+  };
+  const handleBuy = (bk) => {
+    cart.add(bk, 1);
+    if (!user) nav(`/login?next=${encodeURIComponent("/cart")}`);
+    else nav("/cart");
+  };
 
   return (
     <div className="container px-4 py-8">
@@ -283,7 +331,7 @@ export default function Categories() {
             <p>Đang tải…</p>
           ) : pageItems.length ? (
             <>
-              {/* Grid 4×4 — dùng DealCard giống phần yêu thích */}
+              {/* Grid 4×4 */}
               <div
                 className={`grid ${
                   layout === "grid"
@@ -292,7 +340,12 @@ export default function Categories() {
                 } gap-6`}
               >
                 {pageItems.map((b) => (
-                  <DealCard key={b.id || b._id} book={b} />
+                  <DealCard
+                    key={b.id || b._id}
+                    book={b}
+                    onAdd={handleAdd}   // ✅ truyền handler
+                    onBuy={handleBuy}   // ✅ truyền handler
+                  />
                 ))}
               </div>
 

@@ -1,8 +1,12 @@
+// src/view/pages/Home.jsx
 import { useEffect, useMemo, useState } from "react";
 import PromoSlider from "../components/PromoSlider.jsx";
 import DealCard from "../components/DealCard.jsx";
 import SectionHeader from "../components/SectionHeader.jsx";
 import api from "../../services/api.js";
+import { useCart } from "../../store/useCart";      // ✅ thêm
+import { useAuth } from "../../store/useAuth";      // ✅ thêm
+import { useNavigate } from "react-router-dom";     // ✅ thêm
 
 // helpers
 const windowSlice = (list, start, size) => {
@@ -74,6 +78,11 @@ export default function Home() {
   const [dealStart, setDealStart] = useState(0);
   const [authorStart, setAuthorStart] = useState(0);
 
+  // ✅ store & auth & nav
+  const cart = useCart();
+  const { user } = useAuth();
+  const nav = useNavigate();
+
   const promoItems = [
     { id: "p1", title: "Giảm đến 50%", subtitle: "Ưu đãi sách hot cuối tuần", cta: "Mua ngay", to: "/deals", bg: "from-purple-600 to-indigo-600" },
     { id: "p2", title: "Sách mới cập bến", subtitle: "Khám phá bộ sưu tập 2025", cta: "Xem ngay", to: "/books?sort=newest", bg: "from-emerald-600 to-teal-600" },
@@ -88,7 +97,7 @@ export default function Home() {
       api.get("/api/authors", { params: { limit: 50 } }),
     ])
       .then(([b1, b2, b3, a]) => {
-        // IMPORTANT: normalize before set
+        // normalize before set
         setBests(extractItems(b1).map(normalizeBook));
         setNews(extractItems(b2).map(normalizeBook));
         setDeals(extractItems(b3).map(normalizeBook));
@@ -107,6 +116,14 @@ export default function Home() {
   const dealItems   = useMemo(() => windowSlice(deals,   dealStart,   WINDOW),        [deals, dealStart]);
   const authorItems = useMemo(() => windowSlice(authors, authorStart, AUTHOR_WINDOW), [authors, authorStart]);
 
+  // ✅ handlers dùng chung
+  const handleAdd = (bk) => cart.add(bk, 1);
+  const handleBuy = (bk) => {
+    cart.add(bk, 1);
+    if (!user) nav('/login?next=/cart');
+    else nav('/cart');
+  };
+
   return (
     <div className="min-h-screen">
       {/* HERO / PROMO SLIDER */}
@@ -124,7 +141,14 @@ export default function Home() {
             <button onClick={() => setBestStart(p => Math.max(0, p - 1))} disabled={bestStart === 0}
               className="absolute left-0 top-1/2 -translate-y-1/2 z-10 rounded-full border bg-white/90 px-3 py-2 shadow disabled:opacity-40">←</button>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-              {bestItems.map(b => <DealCard key={b.id} book={b} />)}
+              {bestItems.map(b => (
+                <DealCard
+                  key={b.id}
+                  book={b}
+                  onAdd={handleAdd}      // ✅ thêm
+                  onBuy={handleBuy}      // ✅ thêm
+                />
+              ))}
             </div>
             <button onClick={() => setBestStart(p => Math.min(bestMax, p + 1))} disabled={bestStart >= bestMax}
               className="absolute right-0 top-1/2 -translate-y-1/2 z-10 rounded-full border bg-white/90 px-3 py-2 shadow disabled:opacity-40">→</button>
@@ -140,7 +164,14 @@ export default function Home() {
             <button onClick={() => setNewStart(p => Math.max(0, p - 1))} disabled={newStart === 0}
               className="absolute left-0 top-1/2 -translate-y-1/2 z-10 rounded-full border bg-white/90 px-3 py-2 shadow disabled:opacity-40">←</button>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-              {newItems.map(b => <DealCard key={b.id} book={b} />)}
+              {newItems.map(b => (
+                <DealCard
+                  key={b.id}
+                  book={b}
+                  onAdd={handleAdd}
+                  onBuy={handleBuy}
+                />
+              ))}
             </div>
             <button onClick={() => setNewStart(p => Math.min(newMax, p + 1))} disabled={newStart >= newMax}
               className="absolute right-0 top-1/2 -translate-y-1/2 z-10 rounded-full border bg-white/90 px-3 py-2 shadow disabled:opacity-40">→</button>
@@ -179,7 +210,14 @@ export default function Home() {
             <button onClick={() => setDealStart(p => Math.max(0, p - 1))} disabled={dealStart === 0}
               className="absolute left-0 top-1/2 -translate-y-1/2 z-10 rounded-full border bg-white/90 px-3 py-2 shadow disabled:opacity-40">←</button>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-              {dealItems.map(b => <DealCard key={b.id} book={b} />)}
+              {dealItems.map(b => (
+                <DealCard
+                  key={b.id}
+                  book={b}
+                  onAdd={handleAdd}
+                  onBuy={handleBuy}
+                />
+              ))}
             </div>
             <button onClick={() => setDealStart(p => Math.min(dealMax, p + 1))} disabled={dealStart >= dealMax}
               className="absolute right-0 top-1/2 -translate-y-1/2 z-10 rounded-full border bg-white/90 px-3 py-2 shadow disabled:opacity-40">→</button>
