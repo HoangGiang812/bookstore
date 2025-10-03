@@ -1,4 +1,4 @@
-// src/components/DealCard.jsx
+// src/view/components/DealCard.jsx
 import { useState } from "react";
 import { FiShoppingCart } from "react-icons/fi";
 import { Link, useNavigate } from "react-router-dom";
@@ -17,33 +17,96 @@ const safe = (v) =>
     ? v
     : FALLBACK_SVG;
 
+// ====== FX helpers (ripple + fly-to-cart) ======
+function rippleAt(el, e) {
+  try {
+    const rect = el.getBoundingClientRect();
+    const r = document.createElement("span");
+    r.className = "fx-ripple";
+    r.style.left = `${e.clientX - rect.left}px`;
+    r.style.top = `${e.clientY - rect.top}px`;
+    el.appendChild(r);
+    setTimeout(() => r.remove(), 600);
+  } catch {}
+}
+
+function flyToCart(fromEl, imageSrc) {
+  const cartTarget =
+    document.querySelector("[data-cart-target]") ||
+    document.querySelector(".cart-icon") ||
+    document.querySelector('a[href="/cart"]');
+
+  if (!cartTarget) return;
+
+  const from = fromEl.getBoundingClientRect();
+  const to = cartTarget.getBoundingClientRect();
+
+  // tạo thumbnail bay
+  const img = document.createElement("img");
+  img.src = imageSrc || FALLBACK_SVG;
+  img.alt = "book";
+  img.className = "fx-fly";
+  img.style.setProperty("--start-x", `${from.left + from.width / 2}px`);
+  img.style.setProperty("--start-y", `${from.top + from.height / 2}px`);
+  img.style.setProperty("--end-x", `${to.left + to.width / 2}px`);
+  img.style.setProperty("--end-y", `${to.top + to.height / 2}px`);
+  document.body.appendChild(img);
+
+  // lắc icon giỏ + pulse badge
+  cartTarget.classList.add("fx-cart-shake");
+  setTimeout(() => cartTarget.classList.remove("fx-cart-shake"), 700);
+
+  // dọn fly sau khi xong
+  setTimeout(() => img.remove(), 820);
+}
+
 export default function DealCard({ book = {}, onAdd, onBuy }) {
   const [liked, setLiked] = useState(false);
   const { user } = useAuth();
   const nav = useNavigate();
 
+  const id = book.id || book._id;
   const price = Number(book.price ?? 0);
   const originalPrice = Number(book.originalPrice ?? 0);
   const hasDiscount = originalPrice > price && originalPrice > 0;
-  const discount = hasDiscount ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
-
-  const id = book.id || book._id;
+  const discount = hasDiscount
+    ? Math.round(((originalPrice - price) / originalPrice) * 100)
+    : 0;
 
   const toggleLike = (e) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     setLiked((s) => !s);
   };
 
   const addToCart = (e) => {
-    e.preventDefault(); e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
+
+    rippleAt(e.currentTarget, e);
+    flyToCart(e.currentTarget, safe(book.image || book.cover || book.coverUrl));
+
     if (typeof onAdd === "function") onAdd(book);
     else window.dispatchEvent(new CustomEvent("add-to-cart", { detail: book }));
+
+    // kích hoạt header đọc lại badge (tuỳ bạn đã có logic)
+    try {
+      localStorage.setItem("__cart_bump__", String(Date.now()));
+      window.dispatchEvent(new Event("storage"));
+    } catch {}
   };
 
   const buyNow = (e) => {
-    e.preventDefault(); e.stopPropagation();
-    if (typeof onBuy === "function") onBuy(book);
-    else {
+    e.preventDefault();
+    e.stopPropagation();
+
+    rippleAt(e.currentTarget, e);
+    flyToCart(e.currentTarget, safe(book.image || book.cover || book.coverUrl));
+
+    if (typeof onBuy === "function") {
+      onBuy(book);
+    } else {
+      // hành vi mặc định: thêm + điều hướng
       window.dispatchEvent(new CustomEvent("add-to-cart", { detail: book }));
       if (!user) nav("/login?next=/cart");
       else nav("/cart");
@@ -69,7 +132,13 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
             liked ? "text-[var(--color-danger)]" : "text-gray-700"
           }`}
         >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill={liked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.7">
+          <svg
+            viewBox="0 0 24 24"
+            className="h-5 w-5"
+            fill={liked ? "currentColor" : "none"}
+            stroke="currentColor"
+            strokeWidth="1.7"
+          >
             <path d="M12 21s-7-4.35-9.33-7.33A5.86 5.86 0 0 1 3 4.67 5.33 5.33 0 0 1 8.33 4c1.9 0 3.05 1.09 3.67 2 .62-.91 1.77-2 3.67-2A5.33 5.33 0 0 1 21 4.67a5.86 5.86 0 0 1 .33 9C19 16.65 12 21 12 21Z" />
           </svg>
         </button>
@@ -78,34 +147,53 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
           src={safe(book.image || book.cover || book.coverUrl)}
           alt={book.title || "Book cover"}
           className="w-[175px] h-[244px] object-contain duration-300 group-hover:scale-[1.01]"
-          onError={(e) => { e.currentTarget.src = FALLBACK_SVG; }}
+          onError={(e) => {
+            e.currentTarget.src = FALLBACK_SVG;
+          }}
         />
 
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition">
           <button
             onClick={addToCart}
-            className="pointer-events-auto grid h-12 w-12 place-items-center rounded-full text-white shadow"
+            className="pointer-events-auto grid h-12 w-12 place-items-center rounded-full text-white shadow fx-btn"
             style={{ background: "var(--cta-grad)" }}
+            aria-label="Thêm vào giỏ hàng"
+            title="Thêm vào giỏ hàng"
           >
             <FiShoppingCart className="h-6 w-6" style={{ strokeWidth: 2.5 }} />
           </button>
+
           <button
             onClick={buyNow}
-            className="pointer-events-auto h-12 px-6 rounded-lg font-semibold text-white shadow"
-            style={{ background: "var(--buy-grad)", textShadow: "0 1px 2px rgba(0,0,0,.35)" }}
+            className="pointer-events-auto h-12 px-6 rounded-lg font-semibold text-white shadow fx-btn"
+            style={{
+              background: "var(--buy-grad)",
+              textShadow: "0 1px 2px rgba(0,0,0,.35)",
+            }}
+            aria-label="Mua ngay"
+            title="Mua ngay"
           >
             Mua ngay
           </button>
         </div>
 
         <div className="absolute inset-x-3 bottom-3 z-10">
-          <div className="h-1.5 rounded-full w-[175px] max-w-[80%] mx-auto group-hover:opacity-0 transition-opacity"
-               style={{ background: "linear-gradient(to right, var(--brand), var(--brand-light), #B5FCCD)" }} />
+          <div
+            className="h-1.5 rounded-full w-[175px] max-w-[80%] mx-auto group-hover:opacity-0 transition-opacity"
+            style={{
+              background:
+                "linear-gradient(to right, var(--brand), var(--brand-light), #B5FCCD)",
+            }}
+          />
         </div>
       </Link>
 
       <div className="mt-3">
-        <Link to={id ? `/book/${id}` : "#"} className="block text-base font-semibold leading-snug hover:underline">
+        <Link
+          to={id ? `/book/${id}` : "#"}
+          className="block text-base font-semibold leading-snug hover:underline"
+          title={book.title}
+        >
           {book.title || "Sách chưa đặt tên"}
         </Link>
 
@@ -120,6 +208,65 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
           )}
         </div>
       </div>
+
+      {/* FX styles chỉ cho card (có thể đưa vào globals.css) */}
+      <style>{`
+        .fx-btn { position: relative; overflow: hidden; transform: translateZ(0); }
+        .fx-btn:active { transform: scale(.96); }
+
+        .fx-ripple {
+          position: absolute;
+          width: 14px; height: 14px;
+          margin:-7px 0 0 -7px;
+          border-radius: 999px;
+          background: rgba(255,255,255,.55);
+          pointer-events: none;
+          animation: fx-ripple .6s ease-out forwards;
+        }
+        @keyframes fx-ripple {
+          from { transform: scale(0); opacity: .9; }
+          to   { transform: scale(16); opacity: 0; }
+        }
+
+        .fx-fly {
+          position: fixed;
+          left: var(--start-x); top: var(--start-y);
+          width: 64px; height: 84px;
+          object-fit: cover;
+          border-radius: 6px;
+          box-shadow: 0 6px 16px rgba(0,0,0,.15);
+          z-index: 9999;
+          animation: fx-fly .8s cubic-bezier(.45,.05,.55,.95) forwards;
+          background:#fff;
+        }
+        @keyframes fx-fly {
+          0% {
+            transform: translate(-50%,-50%) scale(1);
+            opacity: 1;
+          }
+          55% {
+            transform: translate(
+              calc((var(--end-x) - var(--start-x)) * .55 - 50%),
+              calc((var(--end-y) - var(--start-y)) * .55 - 50% - 120px)
+            ) scale(.85);
+            opacity: .9;
+          }
+          100% {
+            transform: translate(
+              calc(var(--end-x) - var(--start-x) - 50%),
+              calc(var(--end-y) - var(--start-y) - 50%)
+            ) scale(.25);
+            opacity: 0;
+          }
+        }
+
+        .fx-cart-shake { animation: fx-shake .6s ease-in-out; }
+        @keyframes fx-shake {
+          0%,100% { transform: translateX(0); }
+          10%,30%,50%,70%,90% { transform: translateX(-3px); }
+          20%,40%,60%,80%     { transform: translateX(3px); }
+        }
+      `}</style>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { ChevronLeft, Minus, Plus, ShoppingCart, Heart, Star } from "lucide-reac
 import { useCart } from "../../store/useCart";
 import { useAuth } from "../../store/useAuth";
 import * as Catalog from "../../services/catalog";
+import * as CartSvc from "../../services/cart";
 
 /* --------- helpers --------- */
 const toVND = (n) =>
@@ -118,7 +119,7 @@ export default function BookDetail() {
           stock: Number(b.stock ?? 0),
           description: b.description || "",
 
-          // ✅ BỔ SUNG để snapshot khi add cart (tuỳ BE)
+          // ✅ snapshot khi add cart (tuỳ BE)
           categoryIds: Array.isArray(b.categoryIds) ? b.categoryIds : [],
           categoryId: b.categoryId || (Array.isArray(b.categoryIds) ? b.categoryIds[0] : null),
         };
@@ -128,11 +129,8 @@ export default function BookDetail() {
         let rel = [];
         try {
           rel = await Catalog.relatedBooks(b);
-        } catch {
-          /* ignore */
-        }
+        } catch {}
         if (!rel || rel.length === 0) {
-          // fallback theo tác giả (lấy tên đầu tiên nếu có)
           const qAuthor = authors[0]?.name || authorDisplay;
           if (qAuthor) {
             try {
@@ -141,7 +139,6 @@ export default function BookDetail() {
           }
         }
         if ((!rel || rel.length === 0) && normalized.title) {
-          // fallback theo từ khóa tiêu đề
           try {
             rel = await Catalog.getBooks({
               q: normalized.title.split(" ").slice(0, 2).join(" "),
@@ -149,7 +146,6 @@ export default function BookDetail() {
             });
           } catch {}
         }
-        // lọc bỏ chính nó + chuẩn hóa tối thiểu
         const cleaned =
           (rel || [])
             .filter((r) => (r._id || r.id) !== normalized.id)
@@ -175,7 +171,6 @@ export default function BookDetail() {
               rating: Number(r.rating ?? 0),
             }))
             .slice(0, 12) || [];
-
         setRelated(cleaned);
       } finally {
         if (mounted) setLoading(false);
@@ -194,7 +189,7 @@ export default function BookDetail() {
     return clamp(((book.stock || 0) / cap) * 100, 0, 100);
   }, [book]);
 
-  // ✅ handler thêm vào giỏ: tự redirect nếu chưa đăng nhập
+  // ✅ Thêm vào giỏ: nếu chưa đăng nhập → đưa về login và quay lại trang sách
   const handleAddToCart = () => {
     if (!book) return;
     try {
@@ -345,7 +340,7 @@ export default function BookDetail() {
               </button>
             </div>
 
-            {/* ✅ Thêm vào giỏ: tự redirect nếu chưa đăng nhập */}
+            {/* ✅ Thêm vào giỏ */}
             <button
               onClick={handleAddToCart}
               className="inline-flex items-center gap-2 px-5 py-3 rounded-xl text-white shadow-sm hover:shadow transition"
@@ -356,12 +351,15 @@ export default function BookDetail() {
               <ShoppingCart size={18} /> Thêm vào giỏ
             </button>
 
-            {/* ✅ MUA NGAY */}
+            {/* ✅ Mua ngay: chỉ thanh toán sách này */}
             <button
               onClick={() => {
-                if (!user) return nav(`/login?next=${encodeURIComponent("/cart")}`);
-                cart.add(book, Math.max(1, qty));
-                nav("/cart");
+                const q = Math.max(1, qty);
+                cart.add(book, q); // đảm bảo có trong giỏ để hiện ở /cart
+                const pid = book.id || book._id;
+                CartSvc.setBuyNow({ id: pid, qty: q });
+                if (!user) return nav(`/login?next=${encodeURIComponent("/cart?buy=1")}`);
+                nav("/cart?buy=1");
               }}
               className="inline-flex items-center gap-2 px-5 py-3 rounded-xl border hover:bg-gray-50"
               disabled={book.stock <= 0}

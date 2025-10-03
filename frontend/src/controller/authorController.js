@@ -1,6 +1,3 @@
-// src/controller/authorController.js
-// Dựa trên services: "@/services/author" phải cung cấp fetchAuthors(limit, start, q) & fetchAuthorBySlug(slug)
-
 import { fetchAuthors, fetchAuthorBySlug } from "@/services/author";
 
 /**
