@@ -4,8 +4,9 @@ import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import { Search, Grid, List } from "lucide-react";
 import api from "../../services/api";
 import DealCard from "../components/DealCard";
-import { useCart } from "../../store/useCart";      // ✅ thêm
-import { useAuth } from "../../store/useAuth";      // ✅ thêm
+import { useCart } from "../../store/useCart";
+import { useAuth } from "../../store/useAuth";
+import * as CartSvc from "../../services/cart"; // dùng setBuyNow
 
 /* ===== Helpers ===== */
 const extractItems = (payload) => {
@@ -61,7 +62,7 @@ function mapBook(b) {
 
   return {
     id: b._id || b.id || b.bookId,
-    slug: b.slug || null, // THÊM DÒNG NÀY
+    slug: b.slug || null,
     title: b.title || b.name || "—",
     author:
       b.author?.name ||
@@ -88,6 +89,15 @@ function mapBook(b) {
   };
 }
 
+/* bump header badge ngay khi thêm giỏ */
+const bumpHeader = () => {
+  try {
+    localStorage.setItem("__cart_bump__", String(Date.now()));
+    window.dispatchEvent(new Event("storage"));
+    window.dispatchEvent(new Event("cart:changed"));
+  } catch {}
+};
+
 /* ===================== PAGE ===================== */
 export default function Categories() {
   const [layout, setLayout] = useState("grid");
@@ -108,8 +118,8 @@ export default function Categories() {
   const [page, setPage] = useState(1);
 
   const [sp] = useSearchParams();
-  const cart = useCart();                 // ✅ store
-  const { user } = useAuth();             // ✅ auth
+  const cart = useCart();
+  const { user } = useAuth();
   const nav = useNavigate();
   const params = useParams();
 
@@ -182,7 +192,6 @@ export default function Categories() {
   // Lọc client
   const filtered = useMemo(() => {
     let f = [...books];
-    // Bỏ đoạn lọc theo catSlug ở đây
     if (author !== "all") f = f.filter((b) => b.author === author);
     if (rating > 0) f = f.filter((b) => Math.floor(b.rating || 0) >= rating);
     if (search) f = f.filter((b) => (b.title + b.author).toLowerCase().includes(search.toLowerCase()));
@@ -211,16 +220,22 @@ export default function Categories() {
     return filtered.slice(start, start + PER_PAGE);
   }, [filtered, page]);
 
-  // ✅ handlers cho DealCard
+  /* ================= handlers cho DealCard ================= */
+
+  // ✅ Thêm giỏ KHÔNG cần đăng nhập
   const handleAdd = (bk) => {
-    // nếu chưa đăng nhập → sang login, quay lại trang hiện tại
-    if (!user) return nav(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
     cart.add(bk, 1);
+    bumpHeader(); // để Header cập nhật badge ngay
   };
+
+  // ✅ Mua ngay: bắt đăng nhập & chỉ thanh toán món đó
   const handleBuy = (bk) => {
-    cart.add(bk, 1);
-    if (!user) nav(`/login?next=${encodeURIComponent("/cart")}`);
-    else nav("/cart");
+    const q = 1;
+    cart.add(bk, q); // để hiển thị trên /cart
+    CartSvc.setBuyNow({ id: bk.id || bk._id, qty: q });
+    bumpHeader(); // đồng bộ badge
+    if (!user) return nav(`/login?next=${encodeURIComponent("/cart?buy=1")}`);
+    nav("/cart?buy=1");
   };
 
   useEffect(() => {
@@ -342,8 +357,8 @@ export default function Categories() {
                   <DealCard
                     key={b.id || b._id}
                     book={b}
-                    onAdd={handleAdd}   // ✅ truyền handler
-                    onBuy={handleBuy}   // ✅ truyền handler
+                    onAdd={handleAdd}   // ✅ thêm giỏ không cần login
+                    onBuy={handleBuy}   // ✅ mua ngay cần login
                   />
                 ))}
               </div>
