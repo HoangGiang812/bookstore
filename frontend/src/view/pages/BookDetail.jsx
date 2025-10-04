@@ -31,7 +31,7 @@ const slugify = (s = "") =>
 /* =================================================================== */
 
 export default function BookDetail() {
-  const { id } = useParams();
+  const { slug } = useParams();
   const nav = useNavigate();
   const cart = useCart();
   const { user } = useAuth();
@@ -47,7 +47,7 @@ export default function BookDetail() {
     (async () => {
       setLoading(true);
       try {
-        const b = await Catalog.getBook(id);
+        const b = await Catalog.getBook(slug);
         if (!mounted) return;
 
         // Thu gom danh sách tên tác giả từ nhiều khả năng (mảng/chuỗi/embedded)
@@ -179,7 +179,7 @@ export default function BookDetail() {
     return () => {
       mounted = false;
     };
-  }, [id]);
+  }, [slug]);
 
   const hasDiscount = book && book.originalPrice > book.price && book.originalPrice > 0;
 
@@ -414,7 +414,7 @@ function RelatedCard({ b }) {
   const hasDiscount = b.originalPrice > b.price && b.originalPrice > 0;
   return (
     <Link
-      to={`/book/${b.id}`}
+      to={`/books/${b.slug || b.id}`}
       className="group border rounded-2xl p-3 hover:shadow-sm transition bg-white"
       title={b.title}
     >

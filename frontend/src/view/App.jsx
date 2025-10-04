@@ -35,7 +35,8 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/categories" element={<Categories />} />
-        <Route path="/book/:id" element={<BookDetail />} />
+        <Route path="/categories/:slug" element={<Categories />} />
+        <Route path="/books/:slug" element={<BookDetail />} />
         <Route path="/cart" element={<Cart />} />
         <Route path="/orders" element={<Orders />} />
         <Route path="/account" element={<Account />} />

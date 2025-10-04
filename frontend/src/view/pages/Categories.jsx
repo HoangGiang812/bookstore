@@ -1,6 +1,6 @@
 // src/view/pages/Categories.jsx
 import { useState, useMemo, useEffect } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import { Search, Grid, List } from "lucide-react";
 import api from "../../services/api";
 import DealCard from "../components/DealCard";
@@ -60,7 +60,8 @@ function mapBook(b) {
   const original = toNumber(b?.price?.value ?? b?.originalPrice ?? b?.price);
 
   return {
-    id: b._id || b.id || b.bookId, // ✅ đảm bảo có id
+    id: b._id || b.id || b.bookId,
+    slug: b.slug || null, // THÊM DÒNG NÀY
     title: b.title || b.name || "—",
     author:
       b.author?.name ||
@@ -109,7 +110,8 @@ export default function Categories() {
   const [sp] = useSearchParams();
   const cart = useCart();                 // ✅ store
   const { user } = useAuth();             // ✅ auth
-  const nav = useNavigate();              // ✅ nav
+  const nav = useNavigate();
+  const params = useParams();
 
   useEffect(() => {
     const by = sp.get("by");
@@ -180,14 +182,7 @@ export default function Categories() {
   // Lọc client
   const filtered = useMemo(() => {
     let f = [...books];
-    if (catSlug !== "all") {
-      f = f.filter(
-        (b) =>
-          b.categorySlug === catSlug ||
-          normalize(b.category) === catSlug ||
-          b.category === catSlug
-      );
-    }
+    // Bỏ đoạn lọc theo catSlug ở đây
     if (author !== "all") f = f.filter((b) => b.author === author);
     if (rating > 0) f = f.filter((b) => Math.floor(b.rating || 0) >= rating);
     if (search) f = f.filter((b) => (b.title + b.author).toLowerCase().includes(search.toLowerCase()));
@@ -206,7 +201,7 @@ export default function Categories() {
         f.sort((a, b) => (b.publishYear || 0) - (a.publishYear || 0));
     }
     return f;
-  }, [books, catSlug, author, rating, search, sort]);
+  }, [books, author, rating, search, sort]);
 
   // Paging
   const total = filtered.length;
@@ -227,6 +222,12 @@ export default function Categories() {
     if (!user) nav(`/login?next=${encodeURIComponent("/cart")}`);
     else nav("/cart");
   };
+
+  useEffect(() => {
+    if (params.slug) setCatSlug(params.slug);
+    else setCatSlug("all");
+    // eslint-disable-next-line
+  }, [params.slug]);
 
   return (
     <div className="container px-4 py-8">
@@ -275,15 +276,13 @@ export default function Categories() {
             <h4 className="font-semibold mb-2">Danh mục</h4>
             <div className="space-y-2 max-h-72 overflow-auto pr-1">
               {categories.map((c) => (
-                <label key={c.slug} className="flex items-center gap-2">
-                  <input
-                    type="radio"
-                    name="cat"
-                    checked={catSlug === c.slug}
-                    onChange={() => setCatSlug(c.slug)}
-                  />
-                  <span>{c.name}</span>
-                </label>
+                <button
+                  key={c.slug}
+                  className={`flex items-center gap-2 w-full text-left px-2 py-1 rounded ${catSlug === c.slug ? "bg-purple-100 font-bold text-purple-600" : ""}`}
+                  onClick={() => nav(c.slug === "all" ? "/categories" : `/categories/${c.slug}`)}
+                >
+                  {c.name}
+                </button>
               ))}
             </div>
           </div>

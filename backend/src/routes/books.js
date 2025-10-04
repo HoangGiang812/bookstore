@@ -3,6 +3,7 @@ import express from 'express';
 import Book from '../models/Book.js';
 import Author from '../models/Author.js';
 import { listBooks } from '../services/repos/booksRepo.js';
+import { Category } from '../models/Category.js';
 
 const router = express.Router();
 const esc = (s='') => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -10,6 +11,7 @@ const esc = (s='') => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function mapBook(b) {
   return {
     id: b._id?.toString?.() || String(b.id || b._id),
+    slug: b.slug, // Thêm dòng này
     title: b.title,
     author: b.author ?? b.authorName ?? null,
     authorNames: Array.isArray(b.authorNames)
@@ -33,99 +35,47 @@ function mapBook(b) {
 // GET /api/books?authorName=&authorSlug=&q=&limit=&start=
 router.get('/', async (req, res, next) => {
   try {
-    const group = String(req.query.group || '').toLowerCase();
-    const limit = Math.min(200, Number(req.query.limit || 50));
-    const start = Math.max(0, Number(req.query.start || 0));
-    const q = String(req.query.q || '').trim();
-    const authorSlug = String(req.query.authorSlug || '').trim();
-    const authorNameRaw = String(req.query.authorName || '').trim();
+    const { q, authorName, authorSlug, limit = 50, start = 0, categorySlug, category } = req.query;
+    const criteria = {};
 
-    // --- 1) Lọc theo authorSlug (nếu có) ---
-    if (authorSlug) {
-      const author = await Author.findOne({ slug: authorSlug }).lean();
-      if (!author) return res.json({ items: [] });
+    // Lọc theo slug danh mục
+    const catSlug = categorySlug || category;
+    if (catSlug) {
+      const cat = await Category.findOne({ slug: catSlug }).lean();
+      if (!cat) return res.json({ items: [] });
+      criteria.categoryIds = { $in: [cat._id] };
+    }
 
-      const aid = author._id;
-      const slug = author.slug;
-      const name = author.name;
+    // Lọc theo tác giả (nếu có)
+    if (authorName) criteria.author = authorName;
+    if (authorSlug) criteria.authorSlug = authorSlug;
 
-      const nameInCsv = new RegExp(`(^|,\\s*)${esc(name)}(\\s*,|$)`, 'i');
-
-      const baseOr = [
-        { authorIds: { $in: [aid] } },
-        { authorId: aid },
-        { 'authors.authorId': { $in: [aid] } },
-        { authorSlug: slug },
-        { authorSlugs: slug },
-        { 'authors.slug': slug },
-        { author: name },
-        { author: nameInCsv },
-        { authorNames: name },
-        { authorName: { $regex: `^${esc(name)}$`, $options: 'i' } }, // thêm cho chắc
+    // Lọc theo từ khoá (nếu có)
+    if (q) {
+      criteria.$or = [
+        { title: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } },
       ];
-
-      const criteria = q
-        ? {
-            $and: [
-              { $or: baseOr },
-              {
-                $or: [
-                  { title: { $regex: q, $options: 'i' } },
-                  { description: { $regex: q, $options: 'i' } },
-                ],
-              },
-            ],
-          }
-        : { $or: baseOr };
-
-      const items = await Book.find(criteria).skip(start).limit(limit).lean();
-      return res.json({ items: items.map(mapBook) });
     }
 
-    // --- 2) Lọc theo authorName (case-insensitive) ---
-    if (authorNameRaw) {
-      const name = authorNameRaw;
-      const nameInCsv = new RegExp(`(^|,\\s*)${esc(name)}(\\s*,|$)`, 'i');
-
-      const criteria = {
-        $and: [
-          {
-            $or: [
-              { authorName: { $regex: `^${esc(name)}$`, $options: 'i' } }, // chuẩn
-              { author: { $regex: `^${esc(name)}$`, $options: 'i' } },     // alias
-              { author: nameInCsv },                                       // "A, B, C"
-              { authorNames: name },                                       // mảng tên
-            ],
-          },
-          q
-            ? {
-                $or: [
-                  { title: { $regex: q, $options: 'i' } },
-                  { description: { $regex: q, $options: 'i' } },
-                ],
-              }
-            : {},
-        ].filter(Boolean),
-      };
-
-      const items = await Book.find(criteria).skip(start).limit(limit).lean();
-      return res.json({ items: items.map(mapBook) });
-    }
-
-    // --- 3) Không có authorSlug/authorName -> flow cũ ---
-    const rows = await listBooks({ group, limit, start, q });
-    // đảm bảo trả về { items: [...] } để FE thống nhất
-    const items = Array.isArray(rows?.items) ? rows.items : Array.isArray(rows) ? rows : [];
-    return res.json({ items: items.map(mapBook) });
-  } catch (e) {
-    next(e);
+    const items = await Book.find(criteria).skip(Number(start)).limit(Number(limit)).lean();
+    res.json({ items: items.map(mapBook) });
+  } catch (err) {
+    next(err);
   }
 });
 
 // GET /api/books/:id
-router.get('/:id', async (req, res, next) => {
+router.get('/:idOrSlug', async (req, res, next) => {
   try {
-    const book = await Book.findById(req.params.id).lean();
+    const { idOrSlug } = req.params;
+    let book = null;
+    if (/^[0-9a-fA-F]{24}$/.test(idOrSlug)) {
+      book = await Book.findById(idOrSlug).lean();
+    }
+    if (!book) {
+      book = await Book.findOne({ slug: idOrSlug }).lean();
+    }
     if (!book) return res.status(404).json({ message: 'Book not found' });
     res.json(mapBook(book));
   } catch (e) { next(e); }

@@ -59,6 +59,7 @@ const normalizeBook = (b) => {
 
   return {
     id: b._id || b.id,
+    slug: b.slug || null, // THÊM DÒNG NÀY
     title: b.title || b.name || "—",
     image,
     price: priceValue,
