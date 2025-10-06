@@ -1,5 +1,6 @@
 // src/services/cart.js
 import { load, save } from '../view/services/storage'; // đổi path nếu file khác chỗ
+import api from '../services/api';
 
 const keyFor = (uid) => (uid ? `cart_${uid}` : 'cart_guest');
 
@@ -75,7 +76,24 @@ export const removeFromCart = (uid, id) => {
 export const calcSubtotal = (items) =>
   (items || []).reduce((s, it) => s + Number(it.price || 0) * Number(it.quantity || 0), 0);
 
+// Công thức cũ (fallback hiển thị nhanh phía FE)
 export const shippingFee = (subtotal) => (Number(subtotal) >= 300000 ? 0 : 30000);
+
+// NEW: Ưu tiên gọi BE để ước lượng phí ship theo tỉnh/thành; lỗi thì fallback công thức cũ
+export async function shippingFeeFor(province, subtotal) {
+  try {
+    const q = new URLSearchParams({
+      province: String(province || ''),
+      subtotal: String(Number(subtotal || 0)),
+    }).toString();
+    // api.get của dự án trả về JSON data trực tiếp
+    const data = await api.get(`/api/public/shipping/estimate?${q}`);
+    const fee = Number(data?.fee);
+    return Number.isFinite(fee) ? fee : shippingFee(subtotal);
+  } catch (_) {
+    return shippingFee(subtotal);
+  }
+}
 
 export const applyCoupon = (code, subtotal) => {
   const map = { GIAM10: 0.9, FREESHIP300: 1 };
