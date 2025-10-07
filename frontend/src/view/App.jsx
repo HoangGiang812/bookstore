@@ -22,7 +22,6 @@ import Promotions from './pages/Promotions'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
 
-
 // Admin
 import AdminRoute from './routes/AdminRoute'
 import AdminDashboard from './pages/admin/AdminDashboard'
