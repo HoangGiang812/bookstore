@@ -2,17 +2,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../../store/useAuth';
 import { useUI } from '../../store/useUI';
-
-/* ---------------- API helpers ---------------- */
-async function apiGet(url){ const r=await fetch(url,{credentials:'include'}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
-async function apiPatch(url, body){ const r=await fetch(url,{method:'PATCH',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
-async function apiPost(url, body){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},credentials:'include',body:JSON.stringify(body)}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
-async function apiDelete(url){ const r=await fetch(url,{method:'DELETE',credentials:'include'}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+import api from '../../services/api'; // <-- dùng api client chuẩn
 
 /* ------------- LocalStorage helpers (per-user) ------------- */
 const keyNew = (uid)=>`demo_addresses_${uid||'guest'}`;
 const keyLegacy = (uid)=>`addr_${uid||'guest'}`;
-
 const readJSON = (k)=>{ try{return JSON.parse(localStorage.getItem(k)||'[]')}catch{return[]} };
 const writeJSON = (k,v)=>{ try{localStorage.setItem(k,JSON.stringify(v||[]))}catch{} };
 
@@ -36,7 +30,6 @@ const LS = {
   load(uid){
     const k = keyNew(uid);
     let list = readJSON(k);
-    // migrate 1 lần từ key cũ nếu key mới đang trống
     if((!Array.isArray(list) || list.length===0)){
       const legacy = readJSON(keyLegacy(uid));
       if(Array.isArray(legacy) && legacy.length){
@@ -47,35 +40,33 @@ const LS = {
     return (list||[]).map(normalize).filter(Boolean);
   },
   save(uid, list){
-    // đảm bảo có 1 địa chỉ mặc định
     const arr = (list||[]).map(normalize).filter(Boolean);
     if(arr.length && !arr.some(x=>x.isDefault)) arr[0].isDefault = true;
     writeJSON(keyNew(uid), arr);
-    // thông báo cho các trang khác (Cart) reload
-    window.dispatchEvent(new Event('addresses:changed'));
+    try{ window.dispatchEvent(new Event('addresses:changed')); }catch{}
     return arr;
   }
 };
 
-/* --------- API wrapper với fallback LocalStorage --------- */
 const addressApi = (uid)=>({
   async list(){
     try{
-      const d = await apiGet('/api/me/addresses');            // ưu tiên BE
+      const d = await api.get('/users/me/addresses');
       const items = Array.isArray(d) ? d : (d?.items || []);
-      // ghi đè local theo user để xoá dữ liệu cũ nếu có
       LS.save(uid, items);
       return items;
     }catch{
-      return LS.load(uid);                                    // fallback local
+      return LS.load(uid);
     }
   },
   async add(a){
     try{
-      const res = await apiPost('/api/me/addresses', a);
-      // đồng bộ lại từ API
-      try{ const full = await apiGet('/api/me/addresses'); LS.save(uid, Array.isArray(full)?full:(full?.items||[])); }catch{}
-      window.dispatchEvent(new Event('addresses:changed'));
+      const res = await api.post('/users/me/addresses', a);
+      try{
+        const full = await api.get('/users/me/addresses');
+        LS.save(uid, Array.isArray(full)?full:(full?.items||[]));
+      }catch{}
+      try{ window.dispatchEvent(new Event('addresses:changed')); }catch{}
       return res;
     }catch{
       const list = LS.load(uid);
@@ -89,9 +80,12 @@ const addressApi = (uid)=>({
   },
   async remove(id){
     try{
-      const r = await apiDelete(`/api/me/addresses/${id}`);
-      try{ const full = await apiGet('/api/me/addresses'); LS.save(uid, Array.isArray(full)?full:(full?.items||[])); }catch{}
-      window.dispatchEvent(new Event('addresses:changed'));
+      const r = await api.delete(`/users/me/addresses/${id}`);
+      try{
+        const full = await api.get('/users/me/addresses');
+        LS.save(uid, Array.isArray(full)?full:(full?.items||[]));
+      }catch{}
+      try{ window.dispatchEvent(new Event('addresses:changed')); }catch{}
       return r;
     }catch{
       let list = LS.load(uid).filter(x=>String(x._id||x.id)!==String(id));
@@ -102,9 +96,12 @@ const addressApi = (uid)=>({
   },
   async setDefault(id){
     try{
-      const r = await apiPatch(`/api/me/addresses/${id}/default`, { isDefault:true });
-      try{ const full = await apiGet('/api/me/addresses'); LS.save(uid, Array.isArray(full)?full:(full?.items||[])); }catch{}
-      window.dispatchEvent(new Event('addresses:changed'));
+      const r = await api.patch(`/users/me/addresses/${id}/default`, { isDefault:true });
+      try{
+        const full = await api.get('/users/me/addresses');
+        LS.save(uid, Array.isArray(full)?full:(full?.items||[]));
+      }catch{}
+      try{ window.dispatchEvent(new Event('addresses:changed')); }catch{}
       return r;
     }catch{
       const list = LS.load(uid).map(x=>({ ...x, isDefault:String(x._id||x.id)===String(id) }));
@@ -120,13 +117,11 @@ const VN_PROVINCES = [
   'Bình Dương','Đồng Nai','Khánh Hòa','Lâm Đồng','Quảng Ninh',
   'Bà Rịa - Vũng Tàu','Bắc Ninh','Bắc Giang','Thừa Thiên Huế','An Giang'
 ];
-
 const DISTRICTS = {
   'Hồ Chí Minh': ['Quận 1','Quận 3','Quận 5','Quận 7','Bình Thạnh','Gò Vấp','Tân Bình','Phú Nhuận','Thủ Đức'],
   'Hà Nội': ['Ba Đình','Hoàn Kiếm','Cầu Giấy','Đống Đa','Hai Bà Trưng','Thanh Xuân','Bắc Từ Liêm','Nam Từ Liêm'],
   'Đà Nẵng': ['Hải Châu','Thanh Khê','Sơn Trà','Ngũ Hành Sơn','Liên Chiểu','Cẩm Lệ'],
 };
-
 const WARDS = {
   'Hồ Chí Minh': {
     'Quận 1': ['Bến Nghé','Bến Thành','Cầu Ông Lãnh','Cô Giang','Đa Kao','Nguyễn Thái Bình','Tân Định'],
@@ -208,7 +203,7 @@ function AddressModal({ open, onClose, onSave, user }) {
             </Field>
 
             <Field label="Số điện thoại" required>
-              <input className="input w-full" placeholder="09xxxxxxxx"
+              <input className="input w/full" placeholder="09xxxxxxxx"
                      value={f.phone} onChange={e=>setF({...f,phone:e.target.value})}/>
             </Field>
 
@@ -227,7 +222,7 @@ function AddressModal({ open, onClose, onSave, user }) {
 
             <Field label="Quận/Huyện">
               <input
-                className="input w-full"
+                className="input w/full"
                 list="vn-districts"
                 placeholder="Q1 / Bình Thạnh / …"
                 value={f.district}
@@ -241,7 +236,7 @@ function AddressModal({ open, onClose, onSave, user }) {
 
             <Field label="Phường/Xã">
               <input
-                className="input w-full"
+                className="input w/full"
                 list="vn-wards"
                 placeholder="Bến Nghé / …"
                 value={f.ward}
@@ -256,7 +251,7 @@ function AddressModal({ open, onClose, onSave, user }) {
 
           <div className="mt-4">
             <Field label="Địa chỉ chi tiết" required>
-              <input className="input w-full" placeholder="123 Lê Lợi…"
+              <input className="input w/full" placeholder="123 Lê Lợi…"
                      value={f.detail} onChange={e=>setF({...f,detail:e.target.value})}/>
             </Field>
           </div>
@@ -277,29 +272,253 @@ function AddressModal({ open, onClose, onSave, user }) {
   );
 }
 
+/* ------------ Modal shell dùng chung ------------ */
+function ModalShell({open,title,onClose,children,footer}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[1000] bg-black/30 flex items-center justify-center p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div className="text-xl font-semibold">{title}</div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">✕</button>
+        </div>
+        <div className="p-6">{children}</div>
+        <div className="px-6 py-4 border-t flex items-center justify-end gap-3">{footer}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------ SĐT: KHÔNG OTP ------------ */
+function PhoneModal({open,onClose, defaultValue = '', onUpdated}) {
+  const { showToast } = useUI();
+  const [phone,setPhone] = useState(defaultValue);
+
+  useEffect(()=>{ if (open) setPhone(defaultValue || ''); }, [open, defaultValue]);
+
+  const save = async ()=>{
+    if (!phone.trim()) return showToast?.({type:'warning',title:'Nhập số điện thoại'});
+    try {
+      await api.patch('/users/me/phone',{ phone: phone.trim() });
+      onUpdated?.(phone.trim()); // cập nhật UI ngay
+      showToast?.({type:'success',title:'Cập nhật SĐT thành công'});
+      onClose?.();
+    } catch (e) {
+      showToast?.({type:'danger',title:'Không cập nhật được SĐT', message: e?.message || 'Lỗi không xác định'});
+    }
+  };
+
+  return (
+    <ModalShell open={open} onClose={onClose} title="Cập nhật số điện thoại"
+      footer={
+        <>
+          <button className="btn bg-gray-100 hover:bg-gray-200" onClick={onClose}>Đóng</button>
+          <button className="btn-primary" onClick={save}>Lưu</button>
+        </>
+      }>
+      <label className="block">
+        <div className="text-sm font-medium mb-1">Số điện thoại</div>
+        <input className="input w-full" placeholder="09xxxxxxxx" value={phone} onChange={e=>setPhone(e.target.value)} />
+      </label>
+    </ModalShell>
+  );
+}
+
+/* ------------ Đổi mật khẩu ------------ */
+function PasswordModal({open,onClose}) {
+  const { showToast } = useUI();
+  const [oldPwd,setOldPwd] = useState('');
+  const [newPwd,setNewPwd] = useState('');
+  const [confirmPwd,setConfirmPwd] = useState('');
+
+  const submit = async ()=>{
+    if (!oldPwd || !newPwd || !confirmPwd) return showToast?.({type:'warning',title:'Điền đủ các trường'});
+    if (newPwd !== confirmPwd) return showToast?.({type:'warning',title:'Xác nhận mật khẩu không khớp'});
+    try {
+      await api.patch('/users/me/password',{ oldPassword:oldPwd, newPassword:newPwd });
+      showToast?.({type:'success',title:'Đổi mật khẩu thành công'});
+      onClose?.();
+    } catch (e) {
+      showToast?.({type:'danger',title:'Đổi mật khẩu thất bại', message:e?.message || 'Lỗi không xác định'});
+    }
+  };
+
+  return (
+    <ModalShell open={open} onClose={onClose} title="Đổi mật khẩu"
+      footer={<>
+        <button className="btn bg-gray-100 hover:bg-gray-200" onClick={onClose}>Huỷ</button>
+        <button className="btn-primary" onClick={submit}>Lưu</button>
+      </>}>
+      <label className="block mb-3">
+        <div className="text-sm font-medium mb-1">Mật khẩu hiện tại</div>
+        <input type="password" className="input w-full" autoComplete="current-password" value={oldPwd} onChange={e=>setOldPwd(e.target.value)}/>
+      </label>
+      <label className="block mb-3">
+        <div className="text-sm font-medium mb-1">Mật khẩu mới</div>
+        <input type="password" className="input w-full" autoComplete="new-password" name="new-password" value={newPwd} onChange={e=>setNewPwd(e.target.value)}/>
+      </label>
+      <label className="block">
+        <div className="text-sm font-medium mb-1">Xác nhận mật khẩu mới</div>
+        <input type="password" className="input w-full" autoComplete="new-password" name="confirm-new-password" value={confirmPwd} onChange={e=>setConfirmPwd(e.target.value)}/>
+      </label>
+    </ModalShell>
+  );
+}
+
+/* ------------ PIN ------------ */
+function PinModal({open,onClose}) {
+  const { showToast } = useUI();
+  const [pin,setPin] = useState('');
+  const [confirm,setConfirm] = useState('');
+
+  const submit = async ()=>{
+    if (!/^\d{4,6}$/.test(pin)) return showToast?.({type:'warning',title:'PIN phải 4–6 chữ số'});
+    if (pin !== confirm) return showToast?.({type:'warning',title:'Xác nhận PIN không khớp'});
+    try {
+      await api.patch('/users/me/pin',{ pin });
+    } catch {
+      await api.patch('/users/me/profile',{ pin });
+    }
+    showToast?.({type:'success',title:'Thiết lập PIN thành công'});
+    onClose?.();
+  };
+
+  return (
+    <ModalShell open={open} onClose={onClose} title="Thiết lập mã PIN"
+      footer={<>
+        <button className="btn bg-gray-100 hover:bg-gray-200" onClick={onClose}>Huỷ</button>
+        <button className="btn-primary" onClick={submit}>Lưu</button>
+      </>}>
+      <label className="block mb-3">
+        <div className="text-sm font-medium mb-1">PIN mới</div>
+        <input className="input w-full" placeholder="4–6 chữ số" value={pin} onChange={e=>setPin(e.target.value)} />
+      </label>
+      <label className="block">
+        <div className="text-sm font-medium mb-1">Xác nhận PIN</div>
+        <input className="input w-full" value={confirm} onChange={e=>setConfirm(e.target.value)} />
+      </label>
+    </ModalShell>
+  );
+}
+
+function DeleteRequestModal({open,onClose}) {
+  const { showToast } = useUI();
+  const [reason,setReason] = useState('');
+
+  const submit = async ()=>{
+    try { await api.post('/users/me/delete-request',{ reason }); } catch {}
+    showToast?.({type:'success',title:'Đã ghi nhận yêu cầu xoá tài khoản'});
+    onClose?.();
+  };
+
+  return (
+    <ModalShell open={open} onClose={onClose} title="Yêu cầu xoá tài khoản"
+      footer={<>
+        <button className="btn bg-gray-100 hover:bg-gray-200" onClick={onClose}>Huỷ</button>
+        <button className="btn-primary" onClick={submit}>Gửi yêu cầu</button>
+      </>}>
+      <label className="block">
+        <div className="text-sm font-medium mb-1">Lý do (không bắt buộc)</div>
+        <textarea className="input w-full min-h-[96px]" placeholder="Bạn muốn chúng tôi xoá tài khoản vì…" value={reason} onChange={e=>setReason(e.target.value)} />
+      </label>
+      <p className="text-xs text-gray-500 mt-3">Hành động này chưa xoá ngay. Chúng tôi sẽ xác minh trước khi xử lý.</p>
+    </ModalShell>
+  );
+}
+
 /* ======================== Account Page ======================== */
 export default function Account(){
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const { showToast } = useUI();
   const uid = useMemo(()=>String(user?._id||user?.id||''),[user]);
-  const api = useMemo(()=>addressApi(uid),[uid]);
+  const apiAddr = useMemo(()=>addressApi(uid),[uid]);
 
   /* -------- Hồ sơ -------- */
-  const [name,setName] = useState(user?.name||user?.fullName||'');
-  const [dob,setDob] = useState({ d:'', m:'', y:'' });
-  const [gender,setGender] = useState('Nam');
-  const [nation,setNation] = useState('Việt Nam');
-  const [avatar,setAvatar] = useState(user?.avatar||'/avatar.png');
+  const [name,setName]     = useState(user?.name || user?.fullName || '');
+  const [dob,setDob]       = useState(user?.dob || { d:'', m:'', y:'' });
+  const [gender,setGender] = useState(user?.gender || 'Nam');
+  const [nation,setNation] = useState(user?.nation || 'Việt Nam');
+  const [avatar,setAvatar] = useState(user?.avatarUrl || user?.avatar || '/avatar.png');
+  const [avatarFile, setAvatarFile] = useState(null);
   const fileRef = useRef(null);
 
+  // hiển thị SĐT để cập nhật ngay khi lưu
+  const [userPhone, setUserPhone] = useState(user?.phone || '');
+  useEffect(()=>{ 
+    setUserPhone(user?.phone || '');
+    setName(user?.name || user?.fullName || '');
+    setDob(user?.dob || { d:'', m:'', y:'' });
+    setGender(user?.gender || 'Nam');
+    setNation(user?.nation || 'Việt Nam');
+    setAvatar(user?.avatarUrl || user?.avatar || '/avatar.png');
+  }, [user]);
+
+  // HYDRATE khi mở trang (đảm bảo sau F5 có dữ liệu từ BE)
+  useEffect(()=>{
+    (async ()=>{
+      try {
+        const me = await api.get('/users/me');
+        setUser?.(me);
+        // đồng bộ state cục bộ theo BE
+        setName(me?.name || '');
+        setDob(me?.dob || { d:'', m:'', y:'' });
+        setGender(me?.gender || 'Nam');
+        setNation(me?.nation || 'Việt Nam');
+        setAvatar(me?.avatarUrl || me?.avatar || '/avatar.png');
+        setUserPhone(me?.phone || '');
+      } catch {}
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // chạy 1 lần
+
   const onPickAvatar = ()=>fileRef.current?.click();
-  const onFile = (e)=>{ const f=e.target.files?.[0]; if(!f) return; setAvatar(URL.createObjectURL(f)); };
+  const onFile = (e)=>{
+    const f=e.target.files?.[0];
+    if(!f) return;
+    setAvatar(URL.createObjectURL(f)); // preview
+    setAvatarFile(f);                  // để upload khi lưu
+  };
+
+  // Upload avatar -> trả URL
+  const uploadAvatarIfNeeded = async ()=>{
+    if (!avatarFile) return user?.avatarUrl || user?.avatar || null;
+    try {
+      const form = new FormData();
+      form.append('avatar', avatarFile);
+      const res = await api.post('/users/me/avatar', form, { headers: { 'Content-Type':'multipart/form-data' } });
+      const url = res?.url || res?.avatarUrl || res?.data?.url || res?.data?.avatarUrl;
+      if (url) return url;
+    } catch {}
+    try {
+      const form = new FormData();
+      form.append('file', avatarFile);
+      const res = await api.post('/uploads', form, { headers: { 'Content-Type':'multipart/form-data' } });
+      const url = res?.url || res?.path || res?.data?.url;
+      if (url) return url;
+    } catch {}
+    return user?.avatarUrl || user?.avatar || null;
+  };
+
   const saveProfile = async ()=>{
     try{
-      await apiPatch('/api/me/profile',{ name, avatar, dob, gender, nation });
+      const avatarUrl = await uploadAvatarIfNeeded();
+      await api.patch('/users/me/profile',{ name, avatar: avatarUrl, avatarUrl, dob, gender, nation });
+
+      // Refetch user từ BE để lưu bền qua reload
+      try {
+        const me = await api.get('/users/me');
+        setUser?.(me);
+        setName(me?.name || '');
+        setDob(me?.dob || { d:'', m:'', y:'' });
+        setGender(me?.gender || 'Nam');
+        setNation(me?.nation || 'Việt Nam');
+        setAvatar(me?.avatarUrl || me?.avatar || '/avatar.png');
+        setUserPhone(me?.phone || '');
+        setAvatarFile(null);
+      } catch {}
       showToast?.({ type:'success', title:'Đã lưu thay đổi' });
-    }catch{
-      showToast?.({ type:'success', title:'Đã lưu thay đổi (local)' });
+    }catch(e){
+      showToast?.({ type:'danger', title:'Lưu thay đổi thất bại', message:e?.message || 'Lỗi không xác định' });
     }
   };
 
@@ -308,23 +527,26 @@ export default function Account(){
   const [loading,setLoading] = useState(true);
   const [openModal,setOpenModal] = useState(false);
 
+  /* -------- Bảo mật -------- */
+  const [openPhone,setOpenPhone] = useState(false);
+  const [openPassword,setOpenPassword] = useState(false);
+  const [openPin,setOpenPin] = useState(false);
+  const [openDelete,setOpenDelete] = useState(false);
+
   const reload = async ()=>{
     setLoading(true);
     try{
-      const items = await api.list();
+      const items = await apiAddr.list();
       setList(items);
     } finally { setLoading(false); }
   };
 
-  useEffect(()=>{ reload(); },[api]);
+  useEffect(()=>{ reload(); },[apiAddr]);
 
-  const addAddress = async (a)=>{ await api.add(a); await reload(); showToast?.({type:'success', title:'Đã thêm địa chỉ'}); };
-  const removeAddress = async (id)=>{ if(!confirm('Xoá địa chỉ này?')) return; await api.remove(id); await reload(); };
-  const setDefault = async (id)=>{ await api.setDefault(id); await reload(); };
+  const addAddress = async (a)=>{ await apiAddr.add(a); await reload(); showToast?.({type:'success', title:'Đã thêm địa chỉ'}); };
+  const removeAddress = async (id)=>{ if(!confirm('Xoá địa chỉ này?')) return; await apiAddr.remove(id); await reload(); };
+  const setDefault = async (id)=>{ await apiAddr.setDefault(id); await reload(); };
 
-  const line = (a)=>[a.detail,a.ward,a.district,a.province].filter(Boolean).join(', ');
-
-  /* -------- Options cho DOB (3 cột bằng nhau) -------- */
   const days = Array.from({length:31},(_,i)=>String(i+1));
   const months = Array.from({length:12},(_,i)=>String(i+1));
   const years = Array.from({length:80},(_,i)=>String(new Date().getFullYear()-i));
@@ -333,9 +555,7 @@ export default function Account(){
     <div className="container px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Thông tin tài khoản</h1>
 
-      {/* CARD chính gồm 2 cột */}
       <div className="grid lg:grid-cols-2 gap-6">
-        {/* Cột trái: Thông tin cá nhân */}
         <div className="card p-5">
           <div className="text-lg font-semibold mb-4">Thông tin cá nhân</div>
 
@@ -363,19 +583,18 @@ export default function Account(){
                 <input className="input w-full" value={name} onChange={e=>setName(e.target.value)} />
               </Field>
 
-              {/* Ngày / Tháng / Năm – bề rộng bằng nhau */}
               <div>
                 <div className="text-sm font-medium mb-1">Ngày sinh</div>
                 <div className="grid grid-cols-3 gap-3">
-                  <select className="input w-full" value={dob.d} onChange={e=>setDob({...dob,d:e.target.value})}>
+                  <select className="input w/full" value={dob.d} onChange={e=>setDob({...dob,d:e.target.value})}>
                     <option value="">Ngày</option>
                     {days.map(d=><option key={d} value={d}>{d}</option>)}
                   </select>
-                  <select className="input w-full" value={dob.m} onChange={e=>setDob({...dob,m:e.target.value})}>
+                  <select className="input w/full" value={dob.m} onChange={e=>setDob({...dob,m:e.target.value})}>
                     <option value="">Tháng</option>
                     {months.map(m=><option key={m} value={m}>{m}</option>)}
                   </select>
-                  <select className="input w-full" value={dob.y} onChange={e=>setDob({...dob,y:e.target.value})}>
+                  <select className="input w/full" value={dob.y} onChange={e=>setDob({...dob,y:e.target.value})}>
                     <option value="">Năm</option>
                     {years.map(y=><option key={y} value={y}>{y}</option>)}
                   </select>
@@ -409,16 +628,15 @@ export default function Account(){
           </div>
         </div>
 
-        {/* Cột phải: Phone/Email & Bảo mật */}
         <div className="card p-5 space-y-4">
           <div className="text-lg font-semibold">Số điện thoại và Email</div>
 
           <div className="flex items-center justify-between p-3 border rounded-lg">
             <div>
               <div className="font-medium">Số điện thoại</div>
-              <div className="text-gray-600 text-sm">{user?.phone || 'Chưa cập nhật'}</div>
+              <div className="text-gray-600 text-sm">{userPhone || 'Chưa cập nhật'}</div>
             </div>
-            <button className="btn bg-gray-100 hover:bg-gray-200">Cập nhật</button>
+            <button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPhone(true)}>Cập nhật</button>
           </div>
 
           <div className="flex items-center justify-between p-3 border rounded-lg">
@@ -426,29 +644,29 @@ export default function Account(){
               <div className="font-medium">Địa chỉ email</div>
               <div className="text-gray-600 text-sm">{user?.email || 'Thêm địa chỉ email'}</div>
             </div>
-            <button className="btn bg-gray-100 hover:bg-gray-200">Cập nhật</button>
+            <button className="btn bg-gray-100 hover:bg-gray-200" disabled>Cập nhật</button>
           </div>
 
           <div className="text-lg font-semibold pt-2">Bảo mật</div>
 
           <div className="flex items-center justify-between p-3 border rounded-lg">
             <div className="font-medium">Thiết lập mật khẩu</div>
-            <button className="btn bg-gray-100 hover:bg-gray-200">Cập nhật</button>
+            <button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPassword(true)}>Cập nhật</button>
           </div>
 
           <div className="flex items-center justify-between p-3 border rounded-lg">
             <div className="font-medium">Thiết lập mã PIN</div>
-            <button className="btn bg-gray-100 hover:bg-gray-200">Thiết lập</button>
+            <button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPin(true)}>Thiết lập</button>
           </div>
 
           <div className="flex items-center justify-between p-3 border rounded-lg">
             <div className="font-medium">Yêu cầu xoá tài khoản</div>
-            <button className="btn bg-gray-100 hover:bg-gray-200">Yêu cầu</button>
+            <button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenDelete(true)}>Yêu cầu</button>
           </div>
         </div>
       </div>
 
-      {/* Sổ địa chỉ ngay trong trang */}
+      {/* Sổ địa chỉ */}
       <div className="card p-5 mt-6">
         <div className="flex items-center justify-between mb-3">
           <div className="text-lg font-semibold">Sổ địa chỉ</div>
@@ -487,9 +705,23 @@ export default function Account(){
         )}
       </div>
 
-      {/* Modal thêm địa chỉ */}
+      {/* Modals */}
       <AddressModal open={openModal} onClose={()=>setOpenModal(false)} onSave={addAddress} user={user}/>
+      <PhoneModal
+        open={openPhone}
+        onClose={()=>setOpenPhone(false)}
+        defaultValue={userPhone}
+        onUpdated={async (p)=>{
+          setUserPhone(p);
+          try {
+            const me = await api.get('/users/me');
+            setUser?.(me);
+          } catch {}
+        }}
+      />
+      <PasswordModal open={openPassword} onClose={()=>setOpenPassword(false)} />
+      <PinModal open={openPin} onClose={()=>setOpenPin(false)} />
+      <DeleteRequestModal open={openDelete} onClose={()=>setOpenDelete(false)} />
     </div>
   );
 }
-  

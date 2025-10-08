@@ -22,6 +22,8 @@ import adminRoutes from './routes/admin/index.js';
 import categoriesRouter from "./routes/categories.js";
 import uploadRouter from "./routes/uploads.js";
 import path from 'node:path';
+import users from './routes/users.js';
+
 
 const app = express();
 
@@ -48,7 +50,7 @@ app.use('/api/books', bookRoutes);
 app.use('/api/authors', authorRoutes);
 app.use("/api/categories", categoriesRouter);
 app.use("/api/upload", uploadRouter);
-
+app.use('/api', users);
 // ✅ Serve static UPLOADS – chỉ 1 dòng, thống nhất với uploadRouter
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
