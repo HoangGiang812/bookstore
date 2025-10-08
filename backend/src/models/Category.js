@@ -12,7 +12,7 @@ const CategorySchema = new Schema(
     active: { type: Boolean, default: true, index: true },
     sort: { type: Number, default: 0, index: true },
   },
-  { timestamps: true }
+  { timestamps: true, collection: "categories" }
 );
 
 // slug tự sinh từ name nếu chưa có / làm sạch slug
@@ -39,7 +39,7 @@ CategorySchema.pre("save", async function (next) {
   next();
 });
 
-// tránh vòng lặp: parentId không được là chính nó/ậu duệ của nó
+// tránh vòng lặp: parentId không được là chính nó/hậu duệ của nó
 CategorySchema.pre("save", async function (next) {
   if (!this.parentId) return next();
   if (this._id && (this.parentId.equals(this._id) || this.path.includes(this._id))) {
@@ -47,5 +47,8 @@ CategorySchema.pre("save", async function (next) {
   }
   next();
 });
+
+// index gợi ý cho truy vấn danh sách theo parentId + sort
+CategorySchema.index({ parentId: 1, sort: 1 });
 
 export const Category = mongoose.model("Category", CategorySchema);

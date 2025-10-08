@@ -123,6 +123,7 @@ export default function Categories() {
   const nav = useNavigate();
   const params = useParams();
 
+  // đọc query ban đầu
   useEffect(() => {
     const by = sp.get("by");
     const value = sp.get("value");
@@ -134,7 +135,7 @@ export default function Categories() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load danh mục (nếu có)
+  // Load danh mục (sidebar)
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -151,26 +152,29 @@ export default function Categories() {
         if (!cancelled) setCategories([{ slug: "all", name: "Tất cả" }, ...mapped]);
       } catch {}
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // Load sách
+  // Load sách (có hỗ trợ deep)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       setErr("");
       try {
-        const params = {
+        const deepFlag = sp.get("deep") === "1" || sp.get("deep") === "true";
+        const p = {
           q: search || undefined,
           sort,
           category: catSlug !== "all" ? catSlug : undefined,
           categorySlug: catSlug !== "all" ? catSlug : undefined,
+          // các biến thể để BE dễ hiểu:
+          deep: deepFlag ? 1 : undefined,
+          includeDescendants: deepFlag ? true : undefined,
+          recursive: deepFlag ? true : undefined,
           limit: 200,
         };
-        const { items } = await fetchBooksWithFallback(params);
+        const { items } = await fetchBooksWithFallback(p);
         if (cancelled) return;
         const mapped = items.map(mapBook);
 
@@ -184,10 +188,8 @@ export default function Categories() {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [search, sort, catSlug]);
+    return () => { cancelled = true; };
+  }, [search, sort, catSlug, sp]);
 
   // Lọc client
   const filtered = useMemo(() => {
@@ -225,19 +227,20 @@ export default function Categories() {
   // ✅ Thêm giỏ KHÔNG cần đăng nhập
   const handleAdd = (bk) => {
     cart.add(bk, 1);
-    bumpHeader(); // để Header cập nhật badge ngay
+    bumpHeader();
   };
 
   // ✅ Mua ngay: bắt đăng nhập & chỉ thanh toán món đó
   const handleBuy = (bk) => {
     const q = 1;
-    cart.add(bk, q); // để hiển thị trên /cart
+    cart.add(bk, q);
     CartSvc.setBuyNow({ id: bk.id || bk._id, qty: q });
-    bumpHeader(); // đồng bộ badge
+    bumpHeader();
     if (!user) return nav(`/login?next=${encodeURIComponent("/cart?buy=1")}`);
     nav("/cart?buy=1");
   };
 
+  // phản ứng theo slug trên URL
   useEffect(() => {
     if (params.slug) setCatSlug(params.slug);
     else setCatSlug("all");
@@ -294,7 +297,13 @@ export default function Categories() {
                 <button
                   key={c.slug}
                   className={`flex items-center gap-2 w-full text-left px-2 py-1 rounded ${catSlug === c.slug ? "bg-purple-100 font-bold text-purple-600" : ""}`}
-                  onClick={() => nav(c.slug === "all" ? "/categories" : `/categories/${c.slug}`)}
+                  onClick={() =>
+                    nav(
+                      c.slug === "all"
+                        ? "/categories"
+                        : `/categories/${c.slug}?deep=1` // mặc định deep=1 khi chọn danh mục
+                    )
+                  }
                 >
                   {c.name}
                 </button>

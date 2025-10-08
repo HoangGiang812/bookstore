@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   listCategories,
+  listCategoriesTree,   // <--- thêm
   getCategory,
   createCategory,
   updateCategory,
@@ -13,6 +14,7 @@ const router = Router();
 
 // Public
 router.get("/", listCategories);
+router.get("/tree", listCategoriesTree); // <--- endpoint cho FE
 router.get("/:idOrSlug", getCategory);
 
 // Admin (tuỳ ý bật middleware)
