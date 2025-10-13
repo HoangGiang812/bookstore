@@ -1,5 +1,5 @@
-// src/view/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom'
+import ScrollToTop from './components/ScrollToTop'
 
 // Layouts
 import PublicLayout from './layouts/PublicLayout'
@@ -21,20 +21,23 @@ import AuthorDetail from './pages/AuthorDetail'
 import Promotions from './pages/Promotions'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import ResetPassword from './pages/auth/ResetPassword'
+import AboutUsPage from './pages/AboutUsPage'
+import BlogPage from './pages/BlogPage'
+import PostDetailPage from './pages/PostDetailPage'
+
 
 // Admin
 import AdminRoute from './routes/AdminRoute'
 import AdminDashboard from './pages/admin/AdminDashboard'
 
-// ✅ Toast hiển thị toàn app
-// Nếu bạn đặt Toast ở: src/view/components/Toast.jsx
+// Toast
 import Toast from './components/Toast'
-// Nếu bạn dùng bản nâng cấp ở: src/components/ui/Toast.jsx
-// -> đổi import thành: import Toast from '../components/ui/Toast'
+
 
 export default function App() {
   return (
     <>
+      <ScrollToTop />
       <Routes>
         <Route element={<PublicLayout />}>
           <Route path="/" element={<Home />} />
@@ -51,11 +54,11 @@ export default function App() {
           <Route path="/support" element={<Support />} />
           <Route path="/search" element={<Search />} />
           <Route path="/promotions" element={<Promotions />} />
-
-          {/* Authors */}
+          <Route path="/about" element={<AboutUsPage />} />
           <Route path="/authors" element={<Authors />} />
-          {/* Đổi :name -> :id để khớp BE và Link(`/authors/${a.id}`) */}
           <Route path="/authors/:id" element={<AuthorDetail />} />
+          <Route path="/articles" element={<BlogPage />} />
+          <Route path="/articles/:slug" element={<PostDetailPage />} />
         </Route>
 
         <Route element={<AdminRoute />}>
@@ -67,7 +70,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 
-      {/* ✅ Toast đặt ngoài Routes để luôn hiện */}
       <Toast />
     </>
   )

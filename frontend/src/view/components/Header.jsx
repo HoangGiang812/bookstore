@@ -264,9 +264,9 @@ export default function Header() {
 
 {/* Giới thiệu */}
 <Link
-  to="/about"
-  aria-current={pathname.startsWith("/about") ? "page" : undefined}
-  className={pathname.startsWith("/about") ? "led-border" : "pill"}
+  to="/about" // <<< SỬA LẠI THÀNH "/about"
+  aria-current={pathname.startsWith("/about") ? "page" : undefined} // Sửa cả điều kiện active
+  className={pathname.startsWith("/about") ? "led-border" : "pill"} // Sửa cả điều kiện active
   title="Giới thiệu về chúng tôi"
   onMouseEnter={() => setOpen(false)}
   onFocus={() => setOpen(false)}
