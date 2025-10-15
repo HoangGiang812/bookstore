@@ -1,7 +1,9 @@
 // backend/src/models/Book.js
 import mongoose from 'mongoose';
 
-const BookSchema = new mongoose.Schema(
+const { Schema } = mongoose;
+
+const BookSchema = new Schema(
   {
     title: { type: String, required: true, trim: true },
     author: String,
@@ -22,9 +24,11 @@ const BookSchema = new mongoose.Schema(
     soldCount: Number,
     publishYear: Number,
 
-    authorIds: [mongoose.Schema.Types.ObjectId],
-    categoryIds: [mongoose.Schema.Types.ObjectId],     // dùng mảng
-    publisherId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    // thêm ref + index
+    authorIds: [{ type: Schema.Types.ObjectId, ref: 'Author', index: true }],
+    categoryIds: [{ type: Schema.Types.ObjectId, ref: 'Category', index: true }],
+
+    publisherId: { type: Schema.Types.ObjectId, ref: 'Publisher', default: null },
     tags: [String],
     slug: String,
     isbn: String,
@@ -37,7 +41,7 @@ const BookSchema = new mongoose.Schema(
     toJSON: {
       virtuals: true,
       versionKey: false,
-      transform: (_, ret) => {
+      transform: (_ , ret) => {
         ret.id = String(ret._id);
         delete ret._id;
       }
@@ -67,8 +71,10 @@ BookSchema.pre('save', function (next) {
   next();
 });
 
+// Index bổ sung
 BookSchema.index({ soldCount: -1 });
 BookSchema.index({ publishYear: -1 });
+// (đã index trong field, nhưng có thể giữ – Mongo sẽ hợp nhất/cảnh báo trùng)
 
 const Book = mongoose.models.Book || mongoose.model('Book', BookSchema);
 export { Book };

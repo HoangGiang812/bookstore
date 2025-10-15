@@ -1,37 +1,27 @@
-// src/services/admin.js
+// frontend/src/services/admin.js
 import api from './api';
 
-/* ===========================
- * 2.1 Tổng quan
- * =========================== */
 export const overview = (params) =>
-  api.get('/admin/overview', { params }); // range=day|week|month...
+  api.get('/admin/overview', { params });
 
-/* ===========================
- * 2.2 Sản phẩm (Books)
- * - BE tự sinh: code, slug, isbn
- * - FE đảm bảo: discountPercent >= 0
- * - status: 'available' | 'out-of-stock'
- * =========================== */
-
+/* =========================
+ * Books (Admin)
+ * ========================= */
 export const listBooks = (params) =>
-  api.get('/admin/books', { params }); // { items: [...] }
+  api.get('/admin/books', { params });
 
 export const getBook = (id) =>
   api.get(`/admin/books/${id}`);
 
 export const createBook = (payload) => {
-  // FE chỉ gửi các field cần thiết; BE tự xử lý authorName -> Author & bookCount
   const body = {
     ...payload,
-    // Chuẩn hoá dữ liệu gửi lên
     title: String(payload?.title || '').trim(),
     authorName: String(payload?.authorName || '').trim(),
     price: Number(payload?.price || 0),
     discountPercent: Math.max(0, Number(payload?.discountPercent || 0)),
     stock: Math.max(0, Number(payload?.stock || 0)),
     coverUrl: String(payload?.coverUrl || '').trim(),
-    // Nếu không truyền status, BE tự suy theo stock; vẫn set rõ ràng:
     status:
       payload?.status === 'out-of-stock'
         ? 'out-of-stock'
@@ -62,10 +52,6 @@ export const deleteBook = (id) =>
 export const toggleBookFlags = (id, payload) =>
   api.patch(`/admin/books/${id}`, payload);
 
-/**
- * Nhập kho: ưu tiên endpoint chuyên dụng /intake.
- * Nếu BE chưa có /intake, fallback: đọc stock hiện tại rồi cộng và update.
- */
 export const stockIntake = async (bookId, qty, note) => {
   try {
     return await api.post(`/admin/books/${bookId}/intake`, { qty, note });
@@ -77,40 +63,34 @@ export const stockIntake = async (bookId, qty, note) => {
   }
 };
 
-/* ===========================
- * 2.2 Catalog: Categories / Authors / Publishers
- * =========================== */
-
+/* =========================
+ * Categories (Public Admin UI → /api/categories)
+ * ========================= */
 export const categories = {
-  list: (params) => api.get('/admin/categories', { params }),
-  create: (payload) => api.post('/admin/categories', payload),
-  get: (id) => api.get(`/admin/categories/${id}`),
-  update: (id, payload) => api.patch(`/admin/categories/${id}`, payload),
-  remove: (id) => api.delete(`/admin/categories/${id}`),
+  list: (params) => api.get('/categories', { params }),
+  create: (payload) => api.post('/categories', payload),
+  get: (id) => api.get(`/categories/${id}`),
+  update: (id, payload) => api.patch(`/categories/${id}`, payload),
+  remove: (id) => api.delete(`/categories/${id}`),
 };
 
-/**
- * LƯU Ý: routes authors của BE là /api/authors (không phải /api/admin/authors)
- * - list/search: GET /authors?q=...
- * - get:        GET /authors/id/:id  hoặc GET /authors/:slug
- * - create:     POST /authors        (yêu cầu quyền admin ở server)
- * - update:     PATCH /authors/:idOrSlug
- * - remove:     DELETE /authors/:idOrSlug
- */
+/* =========================
+ * Authors (Public endpoints)
+ * ========================= */
 export const authors = {
-  // dùng cho autocomplete: params = { q, limit, start }
   list: (params) => api.get('/authors', { params }),
   search: (q, extra = {}) =>
     api.get('/authors', { params: { q, ...(extra || {}) } }),
   create: (payload) => api.post('/authors', payload),
-  // get theo id (phù hợp với FE hiện tại)
   get: (id) => api.get(`/authors/id/${id}`),
-  // nếu bạn dùng slug:
   getBySlug: (slug) => api.get(`/authors/${encodeURIComponent(slug)}`),
   update: (idOrSlug, payload) => api.patch(`/authors/${idOrSlug}`, payload),
   remove: (idOrSlug) => api.delete(`/authors/${idOrSlug}`),
 };
 
+/* =========================
+ * Publishers (Admin)
+ * ========================= */
 export const publishers = {
   list: (params) => api.get('/admin/publishers', { params }),
   create: (payload) => api.post('/admin/publishers', payload),
@@ -119,28 +99,19 @@ export const publishers = {
   remove: (id) => api.delete(`/admin/publishers/${id}`),
 };
 
-/* ===========================
- * 2.3 Đơn hàng & 2.4 Thanh toán/Hoàn tiền
- * =========================== */
-
+/* =========================
+ * Orders / RMA / Coupons / Users / Content / Settings
+ * ========================= */
 export const orders = {
-  list: (params) => api.get('/admin/orders', { params }), // q, status, from, to, customer
+  list: (params) => api.get('/admin/orders', { params }),
   updateStatus: (id, status, payload = {}) =>
     api.patch(`/admin/orders/${id}/status`, { status, ...payload }),
 };
-
-/* ===========================
- * 2.3 RMA
- * =========================== */
 
 export const rma = {
   list: (params) => api.get('/admin/rmas', { params }),
   update: (id, payload) => api.patch(`/admin/rmas/${id}`, payload),
 };
-
-/* ===========================
- * 2.5 Mã giảm giá
- * =========================== */
 
 export const coupons = {
   list: (params) => api.get('/admin/coupons', { params }),
@@ -149,18 +120,10 @@ export const coupons = {
   remove: (id) => api.delete(`/admin/coupons/${id}`),
 };
 
-/* ===========================
- * 2.6 Người dùng & phân quyền
- * =========================== */
-
 export const users = {
   list: (params) => api.get('/admin/users', { params }),
-  update: (id, payload) => api.patch(`/admin/users/${id}`, payload), // lock/unlock, role
+  update: (id, payload) => api.patch(`/admin/users/${id}`, payload),
 };
-
-/* ===========================
- * 2.7 Nội dung
- * =========================== */
 
 export const banners = {
   list: () => api.get('/admin/banners'),
@@ -175,10 +138,6 @@ export const pages = {
   update: (id, payload) => api.patch(`/admin/pages/${id}`, payload),
   remove: (id) => api.delete(`/admin/pages/${id}`),
 };
-
-/* ===========================
- * 2.7 Cấu hình
- * =========================== */
 
 export const settings = {
   get: () => api.get('/admin/settings'),

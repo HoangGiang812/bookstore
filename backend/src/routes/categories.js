@@ -8,7 +8,7 @@ import {
   removeCategory,
   reorderCategories,
 } from "../controllers/categoryController.js";
-// import { auth, requireAdmin } from "../middlewares/auth.js";
+
 
 const router = Router();
 

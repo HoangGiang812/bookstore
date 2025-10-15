@@ -105,7 +105,7 @@ export default function CategoryMegaMenu({ open, setOpen, anchorRef }) {
                 {roots.map((cat, idx) => {
                   const catKey = String(cat._id || cat.slug);
                   // Nhấn vào danh mục cha -> hiển thị TẤT CẢ sách của mọi danh mục con
-                  const catHref = `/categories/${cat.slug || cat._id}?deep=1`;
+                  const catHref = `/categories/${cat.slug || cat._id}`;
                   const active = idx === hoverIndex;
                   return (
                     <li key={catKey}>

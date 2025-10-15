@@ -1,3 +1,4 @@
+// backend/src/app.js (hoặc index.js)
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -8,29 +9,27 @@ import './services/db.js';
 import './utils/patchJson.js';
 import { notFound, errorHandler } from './middlewares/error.js';
 import { attachUserFromToken } from './middlewares/auth.js';
+import path from 'node:path';
 
-// Import routes
+// --- Routes ---
 import bookRoutes from './routes/books.js';
 import authorRoutes from './routes/authors.js';
 import authRoutes from './routes/auth.js';
 import userRoutes from './routes/users.js';
-import publicRoutes from './routes/public.js';
 import orderRoutes from './routes/orders.js';
 import reviewRoutes from './routes/reviews.js';
 import wishlistRoutes from './routes/wishlist.js';
 import newsletterRoutes from './routes/newsletter.js';
 import contactRoutes from './routes/contact.js';
 import adminRoutes from './routes/admin/index.js';
-import categoriesRouter from "./routes/categories.js";
-import uploadRouter from "./routes/uploads.js";
-import path from 'node:path';
-import users from './routes/users.js';
+import categoriesRouter from './routes/categories.js';
+import uploadRouter from './routes/uploads.js';
 import postRoutes from './routes/posts.js';
-
 
 const app = express();
 
-app.use(cors({ origin: 'http://localhost:5173', credentials: true })); // Cho phép frontend
+// CORS: chỉnh origin theo ENV nếu cần
+app.use(cors({ origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173', credentials: true }));
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '2mb' }));
@@ -39,18 +38,22 @@ app.use(cookieParser());
 
 app.get('/health', (_, res) => res.json({ ok: true }));
 
-// --- Các route CÔNG KHAI (không cần đăng nhập) ---
+/* =======================
+ *  PUBLIC ROUTES
+ * ======================= */
 app.use('/api/auth', authRoutes);
-app.use('/api/public', publicRoutes);
-app.use('/api/books', bookRoutes);
+app.use('/api/books', bookRoutes);          // dùng books.js làm router sách duy nhất
 app.use('/api/authors', authorRoutes);
-app.use("/api/categories", categoriesRouter);
-
+app.use('/api/categories', categoriesRouter);
 app.use('/api/posts', postRoutes);
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
+// Chỉ gắn token cho các route cần bảo vệ
 app.use(attachUserFromToken);
 
-// --- Các route CẦN BẢO VỆ (phải đăng nhập) ---
+/* =======================
+ *  PROTECTED ROUTES
+ * ======================= */
 app.use('/api/users', userRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/reviews', reviewRoutes);
@@ -58,11 +61,9 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/admin', adminRoutes);
-app.use("/api/upload", uploadRouter);
-app.use('/api', users);
+app.use('/api/upload', uploadRouter);
 
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
-
+// 404 & Error handlers
 app.use(notFound);
 app.use(errorHandler);
 
