@@ -16,7 +16,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState, useMemo, useRef } from "react";
 import { searchSuggestions } from "../../services/catalog";
 import { useAuth } from "../../store/useAuth";
-import CategoryMegaMenu from "../components/CategoryMenu"; // ✅ đúng path
+import CategoryMegaMenu from "../components/CategoryMenu";
 
 function readCartCount(userId) {
   try {
@@ -44,9 +44,13 @@ export default function Header() {
 
   const [q, setQ] = useState("");
   const [sugs, setSugs] = useState([]);
-  const [open, setOpen] = useState(false);            // mở/đóng mega menu Sách
-  const anchorRef = useRef(null);                     // neo panel dưới nút Sách
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef(null);
+  const inputRef  = useRef(null);
   const [count, setCount] = useState(readCartCount(user?.id));
+
+  // nhớ loại gợi ý đã chọn gần nhất
+  const [lastPick, setLastPick] = useState(null);
 
   // fly-to-cart + toast
   const [flyItems, setFlyItems] = useState([]);
@@ -108,7 +112,14 @@ export default function Header() {
     return () => clearTimeout(t);
   }, [q]);
 
-  const submit = (e) => { e.preventDefault(); nav(`/search?q=${encodeURIComponent(q)}`); };
+  // luồng submit dùng chung cho Enter và click kính lúp
+  const submit = (e) => {
+    e.preventDefault();
+    const base = `/search?q=${encodeURIComponent(q)}`;
+    if (lastPick?.type === 'author') nav(`${base}&by=author`);
+    else if (lastPick?.type === 'book') nav(`${base}&by=book`);
+    else nav(base);
+  };
 
   const displayName = useMemo(
     () => (user?.name && user.name.trim().split(/\s+/)[0]) || (user?.email && user.email.split("@")[0]) || "bạn",
@@ -128,23 +139,57 @@ export default function Header() {
         <form onSubmit={submit} className="hidden md:flex relative flex-1 max-w-xl mx-8">
           <div className="relative w-full">
             <input
+              ref={inputRef}
               className="input pr-10"
               placeholder="Tìm kiếm sách, tác giả, NXB..."
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              autoComplete="off"
+              onChange={(e) => { setQ(e.target.value); setLastPick(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit(e); }}  // Enter cũng gọi submit
             />
-            <button className="absolute right-3 top-2.5" type="submit"><Search className="w-5 h-5 text-gray-500" /></button>
+            <button className="absolute right-3 top-2.5" type="submit">
+              <Search className="w-5 h-5 text-gray-500" />
+            </button>
           </div>
+
+          {/* Panel gợi ý */}
           {sugs.length > 0 && (
-            <div className="absolute top-full mt-2 w-full bg-white rounded-lg shadow-lg border z-50">
+            <div
+              className="absolute top-full mt-2 w-full bg-white rounded-lg shadow-lg border z-50"
+              onMouseDown={(e) => e.preventDefault()}   // giữ focus, không blur
+              role="listbox"
+            >
               {sugs.map((s, i) => (
                 <button
                   key={i}
+                  type="button"
                   className="w-full text-left px-3 py-2 hover:bg-gray-100"
+                  role="option"
                   onMouseDown={(e) => {
+                    // chạy trước blur để không mất focus
                     e.preventDefault();
-                    if (s.type === "book") nav(`/book/${s.id}`);
-                    else nav(`/search?q=${encodeURIComponent(s.label)}&by=${s.type}`);
+                    e.stopPropagation();
+
+                    // đưa text vào input & nhớ loại gợi ý
+                    setQ(s.label);
+                    setSugs([]);
+                    setLastPick(s);
+
+                    // giữ focus và đặt caret cuối
+                    requestAnimationFrame(() => {
+                      if (inputRef.current) {
+                        const el = inputRef.current;
+                        el.focus();
+                        const end = s.label.length;
+                        try { el.setSelectionRange(end, end); } catch {}
+                      }
+                    });
+
+                    // ✅ Click gợi ý -> điều hướng ngay đến kết quả
+                    const base = `/search?q=${encodeURIComponent(s.label)}`;
+                    if (s.type === 'author') nav(`${base}&by=author`);
+                    else if (s.type === 'book') nav(`${base}&by=book`);
+                    else nav(base);
                   }}
                 >
                   {s.label} <span className="text-xs text-gray-500">({s.type})</span>
@@ -192,7 +237,7 @@ export default function Header() {
         </nav>
       </div>
 
-      {/* Sub navigation – hiệu ứng như cũ: LED chỉ theo active */}
+      {/* Sub navigation */}
       <div className="border-t bg-white/80 backdrop-blur" data-subnav>
         <div className="container px-4">
           <nav
@@ -203,86 +248,80 @@ export default function Header() {
             "
             aria-label="Danh mục nhanh"
           >
-            {/* Trang chủ */}
-<Link
-  to="/"
-  aria-current={pathname === "/" ? "page" : undefined}
-  className={pathname === "/" ? "led-border" : "pill"}
-  title="Trang chủ"
-  onMouseEnter={() => setOpen(false)}
-  onFocus={() => setOpen(false)}
->
-  <span className="pill-inner">
-    <Home className="w-5 h-5" />
-    <span>Trang chủ</span>
-  </span>
-</Link>
+            <Link
+              to="/"
+              aria-current={pathname === "/" ? "page" : undefined}
+              className={pathname === "/" ? "led-border" : "pill"}
+              title="Trang chủ"
+              onMouseEnter={() => setOpen(false)}
+              onFocus={() => setOpen(false)}
+            >
+              <span className="pill-inner">
+                <Home className="w-5 h-5" />
+                <span>Trang chủ</span>
+              </span>
+            </Link>
 
-{/* Sách – giữ nguyên (mở khi hover, không tự tắt ở đây) */}
-<Link
-  to="/categories"
-  ref={anchorRef}
-  onMouseEnter={() => setOpen(true)}
-  className={isCategories ? "led-border" : "pill"}
-  title="Sách"
->
-  <span className="pill-inner">
-    <BookOpen className="w-5 h-5" />
-    <span>Sách</span>
-  </span>
-</Link>
+            <Link
+              to="/categories"
+              ref={anchorRef}
+              onMouseEnter={() => setOpen(true)}
+              className={isCategories ? "led-border" : "pill"}
+              title="Sách"
+            >
+              <span className="pill-inner">
+                <BookOpen className="w-5 h-5" />
+                <span>Sách</span>
+              </span>
+            </Link>
 
-{/* Tác giả */}
-<Link
-  to="/authors"
-  aria-current={pathname.startsWith("/authors") ? "page" : undefined}
-  className={pathname.startsWith("/authors") ? "led-border" : "pill"}
-  title="Tác giả"
-  onMouseEnter={() => setOpen(false)}
-  onFocus={() => setOpen(false)}
->
-  <span className="pill-inner">
-    <PenTool className="w-5 h-5" />
-    <span>Tác giả</span>
-  </span>
-</Link>
+            <Link
+              to="/authors"
+              aria-current={pathname.startsWith("/authors") ? "page" : undefined}
+              className={pathname.startsWith("/authors") ? "led-border" : "pill"}
+              title="Tác giả"
+              onMouseEnter={() => setOpen(false)}
+              onFocus={() => setOpen(false)}
+            >
+              <span className="pill-inner">
+                <PenTool className="w-5 h-5" />
+                <span>Tác giả</span>
+              </span>
+            </Link>
 
-{/* Bài viết */}
-<Link
-  to="/articles"
-  aria-current={pathname.startsWith("/articles") ? "page" : undefined}
-  className={pathname.startsWith("/articles") ? "led-border" : "pill"}
-  title="Bài viết"
-  onMouseEnter={() => setOpen(false)}
-  onFocus={() => setOpen(false)}
->
-  <span className="pill-inner">
-    <MessageSquare className="w-5 h-5" />
-    <span>Bài viết</span>
-  </span>
-</Link>
+            <Link
+              to="/articles"
+              aria-current={pathname.startsWith("/articles") ? "page" : undefined}
+              className={pathname.startsWith("/articles") ? "led-border" : "pill"}
+              title="Bài viết"
+              onMouseEnter={() => setOpen(false)}
+              onFocus={() => setOpen(false)}
+            >
+              <span className="pill-inner">
+                <MessageSquare className="w-5 h-5" />
+                <span>Bài viết</span>
+              </span>
+            </Link>
 
-{/* Giới thiệu */}
-<Link
-  to="/about" // <<< SỬA LẠI THÀNH "/about"
-  aria-current={pathname.startsWith("/about") ? "page" : undefined} // Sửa cả điều kiện active
-  className={pathname.startsWith("/about") ? "led-border" : "pill"} // Sửa cả điều kiện active
-  title="Giới thiệu về chúng tôi"
-  onMouseEnter={() => setOpen(false)}
-  onFocus={() => setOpen(false)}
->
-  <span className="pill-inner">
-    <Info className="w-5 h-5" />
-    <span>Giới thiệu về chúng tôi</span>
-  </span>
-</Link>
-          
+            <Link
+              to="/about"
+              aria-current={pathname.startsWith("/about") ? "page" : undefined}
+              className={pathname.startsWith("/about") ? "led-border" : "pill"}
+              title="Giới thiệu về chúng tôi"
+              onMouseEnter={() => setOpen(false)}
+              onFocus={() => setOpen(false)}
+            >
+              <span className="pill-inner">
+                <Info className="w-5 h-5" />
+                <span>Giới thiệu về chúng tôi</span>
+              </span>
+            </Link>
           </nav>
         </div>
         <div className="h-[2px] bg-gradient-to-r from-[var(--brand)] via-[var(--brand-light)] to-[var(--brand)]" />
       </div>
 
-      {/* Mega menu Sách (đóng khi rời panel; không ảnh hưởng LED) */}
+      {/* Mega menu Sách */}
       <CategoryMegaMenu open={open} setOpen={setOpen} anchorRef={anchorRef} />
 
       {/* Overlay: vật thể bay */}
@@ -307,7 +346,7 @@ export default function Header() {
         ))}
       </div>
 
-      {/* CSS hiệu ứng cũ (không đụng đến LED styles vì bạn đã có trong global) */}
+      {/* CSS hiệu ứng */}
       <style>{`
         @keyframes ftcFly {
           0% { transform: translate(0,0) scale(1); opacity: 1; }

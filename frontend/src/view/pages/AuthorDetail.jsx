@@ -31,7 +31,8 @@ export default function AuthorDetail() {
   const [searchText, setSearchText] = useState("");
 
   // unwrap cho hợp cả axios ({data}) và fetch (json)
-  const unwrap = (res) => (res && typeof res === "object" && "data" in res ? res.data : res) ?? null;
+  const unwrap = (res) =>
+    (res && typeof res === "object" && "data" in res ? res.data : res) ?? null;
 
   useEffect(() => {
     if (!authorKey) return;
@@ -58,12 +59,22 @@ export default function AuthorDetail() {
           return;
         }
 
-        // 2) Lấy sách theo authorName; nếu BE chưa hỗ trợ, fallback q=authorName
+        // 2) Lấy sách theo authorId (chính xác); fallback theo slug hoặc tên
         let booksRes;
         try {
-          booksRes = await api.get("/books", { params: { authorName: a.name, limit: 60, start: 0 } });
+          booksRes = await api.get("/books", {
+            params: { authorId: a._id || a.id, limit: 60, start: 0 },
+          });
         } catch {
-          booksRes = await api.get("/books", { params: { q: a.name, limit: 60, start: 0 } });
+          try {
+            booksRes = await api.get("/books", {
+              params: { author: a.slug || a.name, limit: 60, start: 0 },
+            });
+          } catch {
+            booksRes = await api.get("/books", {
+              params: { q: a.name, limit: 60, start: 0 },
+            });
+          }
         }
         if (!alive) return;
 
@@ -100,11 +111,8 @@ export default function AuthorDetail() {
     }
   });
 
-  // ✅ Hiển thị số tác phẩm: ưu tiên bookCount > 0, nếu không dùng books.length
-  const displayBookCount =
-    typeof author?.bookCount === "number" && author.bookCount > 0
-      ? author.bookCount
-      : books.length;
+  // ✅ Luôn hiển thị theo số sách thực tế
+  const displayBookCount = books.length;
 
   return (
     <div className="min-h-screen bg-gray-50">

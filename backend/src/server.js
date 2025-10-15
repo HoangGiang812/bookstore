@@ -25,7 +25,7 @@ import adminRoutes from './routes/admin/index.js';
 import categoriesRouter from './routes/categories.js';
 import uploadRouter from './routes/uploads.js';
 import postRoutes from './routes/posts.js';
-
+import publicRoutes from './routes/public.js';
 const app = express();
 
 // CORS: chỉnh origin theo ENV nếu cần
@@ -62,6 +62,7 @@ app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRouter);
+app.use('/api/public', publicRoutes);
 
 // 404 & Error handlers
 app.use(notFound);

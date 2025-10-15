@@ -9,6 +9,9 @@ import { Page } from '../models/Page.js';
 import { parsePaging } from '../utils/pagination.js';
 
 const isObjectId = (v) => mongoose.isValidObjectId(String(v || ''));
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const rxContains = (s) => new RegExp(escapeRegex(String(s).trim()), 'i');
+const slugify = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, '-');
 
 /**
  * Trả về mảng _id (ObjectId) của: chính danh mục + toàn bộ hậu duệ.
@@ -52,7 +55,6 @@ export async function listBooks(req, res) {
     year,
     ratingMin,
     sort,
-    // deep/includeDescendants/recursive có thể được FE gửi, mặc định ta vẫn bao gồm hậu duệ
   } = req.query;
 
   const { limit, skip } = parsePaging(req);
@@ -60,44 +62,91 @@ export async function listBooks(req, res) {
   // Xây filter theo AND các tiêu chí; mỗi tiêu chí có thể là OR nội bộ
   const andConds = [];
 
-  // Tìm theo từ khoá (regex an toàn)
+  // ===== Tìm theo từ khoá (partial) – mở rộng sang cả tên/slug tác giả =====
   if (q) {
-    const rx = new RegExp(String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    const rxQ = rxContains(q);
+    const rxQSlug = rxContains(slugify(q));
     andConds.push({
-      $or: [{ title: rx }, { description: rx }],
+      $or: [
+        { title: rxQ },
+        { description: rxQ },
+        { author: rxQ },          // tên tác giả lưu dạng string
+        { authors: rxQ },         // hoặc mảng tên tác giả
+        { authorName: rxQ },      // dataset khác
+        { authorSlug: rxQSlug },  // cho phép gõ 1 phần slug
+      ],
     });
   }
 
-  // Danh mục: cha + con/cháu (ưu tiên mọi alias mà FE có thể gửi)
+  // ===== Danh mục: cha + con/cháu (ưu tiên mọi alias mà FE có thể gửi) =====
   const catParam = category ?? categorySlug ?? slug ?? categoryId;
   if (catParam) {
     const ids = await expandCategoryIds(catParam);    // ObjectId[]
     const idsStr = ids.map(String);                   // string[] để khớp dữ liệu cũ
 
-    if (!ids.length) {
-      return res.json({ items: [], total: 0, pageSize: limit });
-    }
+    if (!ids.length) return res.json({ items: [], total: 0, pageSize: limit });
+
     andConds.push({
       $or: [
-        { categoryIds: { $in: ids } },   // schema mới, đúng kiểu
-        { categories:  { $in: ids } },   // schema cũ (nếu là ObjectId)
-        { categoryIds: { $in: idsStr } },// dữ liệu lệch kiểu: string[]
-        { categories:  { $in: idsStr } },// dữ liệu lệch kiểu: string[]
+        { categoryIds: { $in: ids } },    // schema mới, đúng kiểu
+        { categories:  { $in: ids } },    // schema cũ (ObjectId[])
+        { categoryIds: { $in: idsStr } }, // dữ liệu lệch kiểu: string[]
+        { categories:  { $in: idsStr } }, // dữ liệu lệch kiểu: string[]
       ],
     });
   }
 
-  // Tác giả (tuỳ schema của bạn)
+  // ===== Tác giả: hỗ trợ ObjectId | slug | tên (partial), tránh CastError =====
   const authorParam = author ?? authorId;
   if (authorParam) {
-    andConds.push({
-      $or: [
-        { authorIds: authorParam },
+    if (isObjectId(authorParam)) {
+      // Nếu FE gửi authorId
+      const orConds = [
+        { authorIds: authorParam }, // đúng kiểu ObjectId[]
+        // Phòng dữ liệu lệch kiểu (ít gặp nhưng safe):
         { authors: authorParam },
         { author: authorParam },
         { authorSlug: authorParam },
-      ],
-    });
+      ];
+
+      // Lookup author để match thêm theo name/slug (partial) trên các field string
+      const aDoc = await Author.findById(authorParam).lean().catch(() => null);
+      if (aDoc) {
+        const name = aDoc.name || aDoc.fullName || aDoc.displayName || '';
+        const slug = aDoc.slug || '';
+        if (slug) {
+          const rxSlug = rxContains(slug);
+          orConds.push({ authorSlug: rxSlug });
+        }
+        if (name) {
+          const rxName = rxContains(name);
+          orConds.push(
+            { author: rxName },
+            { authors: rxName },
+            { authorName: rxName },
+          );
+        }
+      }
+      andConds.push({ $or: orConds });
+    } else {
+      // Chuỗi: có thể là slug hoặc tên; tất cả đều partial
+      const s = String(authorParam).trim();
+      const rxTxt  = rxContains(s);               // match 1 phần tên
+      const rxSlug = rxContains(slugify(s));      // match 1 phần slug
+      const spaced = s.replace(/[-_.]+/g, ' ');   // dale-carnegie -> dale carnegie
+      const rxSpaced = rxContains(spaced);
+
+      andConds.push({
+        $or: [
+          { authorSlug: rxSlug },   // 1 phần slug
+          { author: rxTxt },        // 1 phần tên
+          { authors: rxTxt },
+          { authorName: rxTxt },
+          { author: rxSpaced },     // hỗ trợ gạch nối <-> khoảng trắng
+          { authors: rxSpaced },
+        ],
+      });
+    }
   }
 
   if (publisherId) {
@@ -115,9 +164,7 @@ export async function listBooks(req, res) {
 
   if (ratingMin) {
     const v = Number(ratingMin);
-    andConds.push({
-      $or: [{ ratingAvg: { $gte: v } }, { rating: { $gte: v } }],
-    });
+    andConds.push({ $or: [{ ratingAvg: { $gte: v } }, { rating: { $gte: v } }] });
   }
 
   const filter = andConds.length ? { $and: andConds } : {};
@@ -132,12 +179,58 @@ export async function listBooks(req, res) {
   res.json({ items, total, pageSize: limit });
 }
 
+/**
+ * Gợi ý cho ô tìm kiếm.
+ * Trả unified list cho FE: { type: 'book'|'author', id, label }
+ */
 export async function suggestBooks(req, res) {
-  const { q } = req.query;
-  const items = await Book.find(q ? { title: new RegExp(q, 'i') } : {})
-    .select('title slug')
-    .limit(10)
+  const { q, limit = 10 } = req.query;
+  if (!q || !String(q).trim()) return res.json([]);
+
+  const rx = rxContains(q);
+  const rxSlug = rxContains(slugify(q));
+  const lim = Math.max(1, Math.min(20, Number(limit) || 10));
+
+  // Lấy sách theo partial title và partial author text/slug
+  const books = await Book.find({
+    $or: [
+      { title: rx },
+      { author: rx },
+      { authors: rx },
+      { authorSlug: rxSlug },
+    ],
+  })
+    .select('_id title')
+    .limit(lim)
     .lean();
+
+  // Lấy tác giả theo partial name/slug
+  const authors = await Author.find({
+    $or: [
+      { name: rx },
+      { fullName: rx },
+      { displayName: rx },
+      { slug: rxSlug },
+    ],
+  })
+    .select('_id name fullName displayName slug')
+    .limit(lim)
+    .lean();
+
+  const authorItems = authors.map(a => ({
+    type: 'author',
+    id: a._id,
+    label: a.name || a.fullName || a.displayName || a.slug,
+  }));
+
+  const bookItems = books.map(b => ({
+    type: 'book',
+    id: b._id,
+    label: b.title,
+  }));
+
+  // Ưu tiên tác giả rồi tới sách, cắt theo limit
+  const items = [...authorItems, ...bookItems].slice(0, lim);
   res.json(items);
 }
 

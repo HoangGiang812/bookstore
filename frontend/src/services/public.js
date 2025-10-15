@@ -1,6 +1,5 @@
-// File: frontend/src/services/public.js
 
-import api from './api'; // Import api client đã có của bạn
+import api from './api'; 
 
 /**
  * Lấy nội dung trang tĩnh từ backend bằng slug
@@ -9,8 +8,6 @@ import api from './api'; // Import api client đã có của bạn
  */
 export const fetchPageBySlug = async (slug) => {
   try {
-    // Thêm tùy chọn { isPublic: true } để báo cho api client không gửi token
-    // Đây là cách làm đúng nhất dựa trên cấu trúc file api.js của bạn
     const data = await api.get(`/public/pages/${slug}`, { isPublic: true });
     return data;
   } catch (error) {
