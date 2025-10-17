@@ -1,9 +1,9 @@
-// src/middlewares/auth.js
+// File: backend/src/middlewares/auth.js
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
 
 /**
- * Đính kèm user vào req nếu header Authorization: Bearer <token> hợp lệ
+ * Đính kèm req.user nếu header Authorization: Bearer <token> hợp lệ
  * - Chấp nhận payload có { sub } hoặc { id }
  * - Bỏ qua lặng lẽ nếu token không hợp lệ/không có
  */
@@ -19,7 +19,7 @@ export async function attachUserFromToken(req, _res, next) {
     try {
       payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
     } catch {
-      // Token sai/het hạn → coi như guest
+      // Token sai/hết hạn → coi như guest
       return next();
     }
 
@@ -30,11 +30,12 @@ export async function attachUserFromToken(req, _res, next) {
     const u = await User.findById(sub).select('-passwordHash').lean();
     if (!u) return next();
 
-    // Có thể ràng buộc trạng thái hoạt động
+    // Nếu có trạng thái blocked thì coi như không đăng nhập
     if (u.status && String(u.status).toLowerCase() === 'blocked') {
-      return next(); // coi như không đăng nhập
+      return next();
     }
 
+    // Chuẩn hoá roles: luôn là mảng
     const roles = Array.isArray(u.roles) ? u.roles : (u.role ? [u.role] : []);
     req.user = { ...u, roles };
   } catch {
@@ -51,10 +52,16 @@ export function requireAuth(req, res, next) {
   next();
 }
 
-
-
+/**
+ * Yêu cầu có 1 trong các vai trò cho phép.
+ * Hỗ trợ cả 2 cách gọi:
+ *  - requireRoles('admin','staff')
+ *  - requireRoles(['admin','staff'])
+ */
 export function requireRoles(...allow) {
-  const allowL = allow.map((r) => String(r).toLowerCase());
+  // Nếu truyền 1 tham số là mảng -> dùng mảng đó; ngược lại lấy toàn bộ đối số
+  const list = Array.isArray(allow[0]) && allow.length === 1 ? allow[0] : allow;
+  const allowL = list.map((r) => String(r).toLowerCase());
 
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });

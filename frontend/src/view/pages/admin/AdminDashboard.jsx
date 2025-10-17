@@ -8,6 +8,7 @@ import api from '@/services/api';
 import { useAuth } from '@/store/useAuth';
 import ProductsPage from './ProductsPage';
 import AuthorsPage from './AuthorsPage';
+import PostsAdmin from './PostsAdmin';
 const fmt = (n) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(n || 0));
 const badge = (s) => ({
   available: 'text-green-600 bg-green-100',
@@ -458,6 +459,7 @@ const handleLogout = async () => {
       case 'products': return <ProductsPage />; 
       case 'orders': return <OrdersTab />;
       case 'authors': return <AuthorsPage />;
+      case 'posts': return <PostsAdmin />;
       case 'payments': return <div className="text-gray-600">Tham chiếu Orders + Dashboard (nếu có Transactions API thì hiển thị tại đây).</div>;
       case 'coupons': return <CouponsTab />;
       case 'users': return <UsersTab />;
@@ -482,6 +484,7 @@ const handleLogout = async () => {
               ['overview', 'Tổng quan', BarChart3],
               ['products', 'Quản lý sản phẩm', BookOpen],
               ['authors', 'Tác giả', Users], 
+              ['posts', 'Bài viết', BookOpen],
               ['orders', 'Quản lý đơn hàng', ShoppingCart],
               ['payments', 'Thanh toán & Hoàn tiền', CreditCard],
               ['coupons', 'Khuyến mãi & Mã giảm giá', Gift],

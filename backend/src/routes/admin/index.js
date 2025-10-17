@@ -19,6 +19,8 @@ import {
   listBooks, getBook, createBook, updateBook, removeBook, intake, uploadCover 
 } from '../../controllers/admin/bookAdminController.js';
 
+import postsAdminRoutes from './posts.js';
+
 const r = Router();
 const guard = [requireAuth, requireRoles('admin', 'staff')];
 
@@ -101,5 +103,8 @@ r.post('/orders/:id/refund', ...guard, adminAudit, refundOrder);
 // RMA
 r.get('/rmas', ...guard, RMACtrl.list);
 r.patch('/rmas/:id', ...guard, adminAudit, RMACtrl.update);
+
+
+r.use('/posts', postsAdminRoutes);
 
 export default r;
