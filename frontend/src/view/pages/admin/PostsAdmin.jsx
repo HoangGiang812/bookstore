@@ -2,7 +2,9 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Edit2, Trash2, Search, BookOpen, Calendar, User } from 'lucide-react';
 import api from "@/services/api";
-import { useAuth } from "@/store/useAuth";// đảm bảo path này đúng theo dự án của bạn
+import { useAuth } from "@/store/useAuth";
+import ReactQuill from 'react-quill';
+import 'react-quill/dist/quill.snow.css';
 
 function toSlug(s = '') {
   return s
@@ -11,6 +13,32 @@ function toSlug(s = '') {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
 }
+
+const quillModules = {
+  toolbar: [
+    [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
+    [{ 'font': [] }],
+    [{ 'size': ['small', false, 'large', 'huge'] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'color': [] }, { 'background': [] }],
+    [{ 'script': 'sub'}, { 'script': 'super' }],
+    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+    [{ 'indent': '-1'}, { 'indent': '+1' }],
+    [{ 'align': [] }],
+    ['link', 'image', 'video'],
+    ['blockquote', 'code-block'],
+    ['clean'],
+  ],
+};
+
+const quillFormats = [
+  'header', 'font', 'size',
+  'bold', 'italic', 'underline', 'strike',
+  'color', 'background',
+  'script', 'list', 'bullet', 'indent',
+  'align', 'link', 'image', 'video',
+  'blockquote', 'code-block'
+];
 
 export default function PostsAdmin() {
   const { user } = useAuth();
@@ -51,6 +79,10 @@ export default function PostsAdmin() {
     if (name === 'title' && !editingId) {
       setForm(prev => ({ ...prev, slug: toSlug(value) }));
     }
+  };
+
+  const handleContentChange = (value) => {
+    setForm(prev => ({ ...prev, content: value }));
   };
 
   const resetForm = () => {
@@ -339,7 +371,7 @@ export default function PostsAdmin() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Tags (phân cách bằng dấu phẩy)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Tags</label>
                 <input
                   type="text"
                   name="tags"
@@ -351,17 +383,20 @@ export default function PostsAdmin() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nội dung (HTML) *</label>
-                <textarea
-                  name="content"
-                  value={form.content}
-                  onChange={handleChange}
-                  rows={12}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  required
-                  placeholder="<h1>Tiêu đề</h1><p>Nội dung...</p>"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nội dung *</label>
+                <div className="bg-white">
+                    <ReactQuill
+                      theme="snow"
+                      value={form.content}
+                      onChange={handleContentChange}
+                      modules={quillModules}
+                      formats={quillFormats}
+                      style={{ height: '400px' }} // Tăng chiều cao cho thoải mái
+                    />
+                </div>
               </div>
+
+              <div className="pt-12"></div>
 
               <div className="flex gap-4 pt-4">
                 <button
