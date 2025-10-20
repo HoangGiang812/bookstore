@@ -54,24 +54,22 @@ export default function BookDetail() {
         const b = await Catalog.getBook(slug);
         if (!mounted) return;
 
-        // Thu gom danh sách tên tác giả từ nhiều khả năng (mảng/chuỗi/embedded)
+        // Thu gom danh sách tên tác giả
         const namesFromArray =
           Array.isArray(b.authorNames)
             ? b.authorNames
             : Array.isArray(b.authors)
             ? b.authors.map((x) => x?.name || x?.fullName || x?.displayName).filter(Boolean)
             : [];
-
         const namesFromString =
           typeof b.author === "string"
             ? b.author.split(",").map((s) => s.trim()).filter(Boolean)
             : b.authorName
             ? [String(b.authorName)]
             : [];
-
         const authorNames = (namesFromArray.length ? namesFromArray : namesFromString).filter(Boolean);
 
-        // Thu gom slug nếu có
+        // Slug tác giả
         const slugsFromArray =
           Array.isArray(b.authorSlugs)
             ? b.authorSlugs
@@ -79,31 +77,26 @@ export default function BookDetail() {
             ? b.authors.map((x) => x?.slug).filter(Boolean)
             : [];
 
-        // Chuẩn hoá cặp {name, slug}
+        // Chuẩn hoá {name, slug}
         const authors = authorNames.map((name, i) => {
           const slugRaw =
             slugsFromArray[i] ||
-            b.authorSlug || // trường đơn
+            b.authorSlug ||
             (Array.isArray(b.authors) && b.authors[i]?.slug) ||
             "";
-          return {
-            name,
-            slug: slugRaw && String(slugRaw).trim() ? slugRaw : slugify(name),
-          };
+          return { name, slug: slugRaw && String(slugRaw).trim() ? slugRaw : slugify(name) };
         });
 
-        // Lấy "tác giả hiển thị" (dòng đơn) và slug đầu tiên để tương thích UI cũ
         const authorDisplay = authors.map((a) => a.name).join(", ");
         const firstAuthorSlug = authors[0]?.slug || "";
 
-        // Chuẩn hóa tối thiểu các field để render an toàn
         const normalized = {
           id: b._id || b.id,
           _id: b._id || b.id,
           title: b.title,
-          author: authorDisplay, // dòng hiển thị gộp
-          authorSlug: firstAuthorSlug, // slug tác giả đầu tiên
-          authors, // <-- mảng tác giả {name, slug}
+          author: authorDisplay,
+          authorSlug: firstAuthorSlug,
+          authors,
           image: b.coverUrl || b.image,
           price: Number(b.salePrice ?? b.price ?? 0),
           originalPrice:
@@ -119,21 +112,16 @@ export default function BookDetail() {
             (b.originalPrice && b.price && b.originalPrice > b.price
               ? Math.round(((b.originalPrice - b.price) / b.originalPrice) * 100)
               : 0),
-
-          // các field có thể có từ BE cũ
           ratingAvg: Number(b.ratingAvg ?? b.rating ?? 0),
           ratingCnt: Number(b.ratingCnt ?? b.ratingCount ?? b.reviewsCount ?? 0),
-
           stock: Number(b.stock ?? 0),
           description: b.description || "",
-
-          // ✅ snapshot khi add cart (tuỳ BE)
           categoryIds: Array.isArray(b.categoryIds) ? b.categoryIds : [],
           categoryId: b.categoryId || (Array.isArray(b.categoryIds) ? b.categoryIds[0] : null),
         };
         setBook(normalized);
 
-        // ---- lấy summary rating từ API (đảm bảo chuẩn dữ liệu mới)
+        // ---- lấy summary rating từ API
         try {
           const s = await ReviewAPI.getSummary(normalized._id);
           setRatingSum({ avg: Number(s?.avg || 0), cnt: Number(s?.cnt || 0) });
@@ -141,7 +129,7 @@ export default function BookDetail() {
           setRatingSum({ avg: normalized.ratingAvg || 0, cnt: normalized.ratingCnt || 0 });
         }
 
-        // ---- related: ưu tiên API /related, nếu không có: theo tác giả/tiêu đề ----
+        // ---- related
         let rel = [];
         try {
           rel = await Catalog.relatedBooks(b);
@@ -149,9 +137,7 @@ export default function BookDetail() {
         if (!rel || rel.length === 0) {
           const qAuthor = authors[0]?.name || authorDisplay;
           if (qAuthor) {
-            try {
-              rel = await Catalog.getBooks({ q: qAuthor, limit: 12 });
-            } catch {}
+            try { rel = await Catalog.getBooks({ q: qAuthor, limit: 12 }); } catch {}
           }
         }
         if ((!rel || rel.length === 0) && normalized.title) {
@@ -193,9 +179,7 @@ export default function BookDetail() {
         if (mounted) setLoading(false);
       }
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [slug]);
 
   const hasDiscount = book && book.originalPrice > book.price && book.originalPrice > 0;
@@ -206,7 +190,7 @@ export default function BookDetail() {
     return clamp(((book.stock || 0) / cap) * 100, 0, 100);
   }, [book]);
 
-  // ✅ Thêm vào giỏ: nếu chưa đăng nhập → đưa về login và quay lại đúng trang hiện tại
+  // ✅ Thêm vào giỏ: nếu chưa đăng nhập → login rồi quay lại
   const handleAddToCart = () => {
     if (!book) return;
     try {
@@ -230,10 +214,7 @@ export default function BookDetail() {
   if (loading || !book) {
     return (
       <div className="container px-4 py-10">
-        <button
-          onClick={() => nav(-1)}
-          className="inline-flex items-center gap-2 text-gray-600 hover:text-black mb-6"
-        >
+        <button onClick={() => nav(-1)} className="inline-flex items-center gap-2 text-gray-600 hover:text-black mb-6">
           <ChevronLeft size={20} /> Quay lại
         </button>
         <div className="animate-pulse">Đang tải…</div>
@@ -244,10 +225,7 @@ export default function BookDetail() {
   return (
     <div className="container px-4 py-8">
       {/* back */}
-      <button
-        onClick={() => nav(-1)}
-        className="inline-flex items-center gap-2 text-gray-600 hover:text-black mb-4"
-      >
+      <button onClick={() => nav(-1)} className="inline-flex items-center gap-2 text-gray-600 hover:text-black mb-4">
         <ChevronLeft size={20} /> Quay lại
       </button>
 
@@ -287,10 +265,7 @@ export default function BookDetail() {
               </>
             ) : book.author ? (
               book.authorSlug ? (
-                <Link
-                  to={`/authors/${encodeURIComponent(book.authorSlug)}`}
-                  className="font-semibold text-blue-600 hover:underline"
-                >
+                <Link to={`/authors/${encodeURIComponent(book.authorSlug)}`} className="font-semibold text-blue-600 hover:underline">
                   {book.author}
                 </Link>
               ) : (
@@ -339,10 +314,7 @@ export default function BookDetail() {
             <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
               <div
                 className="h-full"
-                style={{
-                  width: `${stockPercent}%`,
-                  background: "linear-gradient(90deg, #3A59D1, #7AC6D2, #B5FCCD)",
-                }}
+                style={{ width: `${stockPercent}%`, background: "linear-gradient(90deg, #3A59D1, #7AC6D2, #B5FCCD)" }}
               />
             </div>
           </div>
@@ -370,11 +342,11 @@ export default function BookDetail() {
               <ShoppingCart size={18} /> Thêm vào giỏ
             </button>
 
-            {/* ✅ Mua ngay: chỉ thanh toán sách này */}
+            {/* ✅ Mua ngay */}
             <button
               onClick={() => {
                 const q = Math.max(1, qty);
-                cart.add(book, q); // đảm bảo có trong giỏ để hiện ở /cart
+                cart.add(book, q);
                 const pid = book.id || book._id;
                 CartSvc.setBuyNow({ id: pid, qty: q });
                 if (!user) {
@@ -479,7 +451,7 @@ function RelatedCard({ b }) {
   );
 }
 
-/* ================= Review Section (form + list) ================= */
+/* ================= Review Section (list + CTA) ================= */
 function ReviewSection({ bookId, onSummaryChanged }) {
   const { user } = useAuth();
   const [can, setCan] = useState(false);
@@ -494,7 +466,7 @@ function ReviewSection({ bookId, onSummaryChanged }) {
       try {
         if (user) {
           const r = await ReviewAPI.canReview(bookId);
-          setCan(!!r?.ok);
+          setCan(!!r?.ok); // ✅ chỉ true nếu user đã mua & đơn delivered/completed
         } else setCan(false);
       } catch { setCan(false); }
       await loadPage(0);
@@ -510,23 +482,30 @@ function ReviewSection({ bookId, onSummaryChanged }) {
     } catch {}
   }
 
+  const loginNext = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+
   return (
     <section id="reviews" className="mt-10">
       <h3 className="text-xl font-semibold mb-3">Đánh giá & nhận xét</h3>
 
-      {user && can && (
-        <ReviewForm
-          bookId={bookId}
-          onDone={async () => {
-            try {
-              const s = await ReviewAPI.getSummary(bookId);
-              onSummaryChanged?.(s);
-            } catch {}
-            await loadPage(0);
-          }}
-        />
+      {/* ✅ Không còn form nhập. Chỉ hiện CTA tuỳ điều kiện */}
+     {user ? (
+        can ? (
+          <div className="p-3 mb-4 rounded-lg border bg-green-50 text-green-800 flex items-center justify-between">
+            <div>
+              <div className="font-medium">Bạn đã mua sản phẩm này.</div>
+              <div className="text-sm opacity-90">Hãy vào trang “Đánh giá sản phẩm” để gửi đánh giá.</div>
+            </div>
+            <Link to="/account/reviews" className="btn-primary px-4 py-2 rounded-lg">Viết đánh giá</Link>
+          </div>
+        ) : null // 👈 đăng nhập nhưng chưa đủ điều kiện → KHÔNG hiện gì
+      ) : (
+        <div className="p-3 mb-4 rounded-lg border bg-gray-50 text-gray-700">
+          Vui lòng <Link to={`/login?next=${encodeURIComponent(window.location.pathname + window.location.search + window.location.hash)}`} className="text-blue-600 underline">đăng nhập</Link> để xem quyền đánh giá.
+        </div>
       )}
 
+      {/* Danh sách nhận xét */}
       <div className="space-y-3">
         {items.map((rv) => (
           <div key={rv._id} className="p-3 border rounded-lg">
@@ -535,10 +514,16 @@ function ReviewSection({ bookId, onSummaryChanged }) {
                 src={rv.userId?.avatar || "/avatar.png"}
                 onError={(e) => { e.currentTarget.src = "/avatar.png"; }}
                 className="w-8 h-8 rounded-full object-cover"
+                alt=""
               />
               <div>
                 <div className="font-medium">{rv.userId?.name || rv.userId?.email || "Người dùng"}</div>
                 <div className="text-xs text-gray-500">{new Date(rv.createdAt).toLocaleString("vi-VN")}</div>
+                {rv.verifiedPurchase && (
+                  <span className="inline-block text-[12px] px-2 py-[2px] rounded bg-emerald-100 text-emerald-700 mt-1">
+                    Đã mua xác thực
+                  </span>
+                )}
               </div>
               <div className="ml-auto text-amber-400">
                 {"★".repeat(rv.rating)}{"☆".repeat(5 - rv.rating)}
@@ -564,59 +549,5 @@ function ReviewSection({ bookId, onSummaryChanged }) {
         </div>
       </div>
     </section>
-  );
-}
-
-function ReviewForm({ bookId, onDone }) {
-  const [rating, setRating] = useState(5);
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
-
-  return (
-    <div className="p-4 border rounded-lg mb-4">
-      <div className="flex items-center gap-3 mb-2">
-        <span className="text-sm">Đánh giá:</span>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            key={n}
-            onClick={() => setRating(n)}
-            className={`w-8 h-8 rounded-full ${rating >= n ? "bg-amber-400" : "bg-gray-200"}`}
-            title={`${n} sao`}
-          />
-        ))}
-        <span className="text-sm text-gray-600">{rating} sao</span>
-      </div>
-      <input
-        className="input w-full mb-2"
-        placeholder="Tiêu đề ngắn"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-      <textarea
-        className="input w-full min-h-[90px]"
-        placeholder="Nhận xét của bạn…"
-        value={content}
-        onChange={(e) => setContent(e.target.value)}
-      />
-      <div className="mt-2 flex justify-end">
-        <button
-          className="btn-primary"
-          onClick={async () => {
-            if (!(rating >= 1 && rating <= 5)) return;
-            try {
-              await ReviewAPI.postReview(bookId, { rating, title, content, photos: [] });
-              setTitle("");
-              setContent("");
-              onDone?.();
-            } catch (e) {
-              console.error(e);
-              alert("Gửi đánh giá thất bại");
-            }
-          }}
-        >
-          Gửi đánh giá
-        </button>
-      </div>
-    </div>
   );
 }

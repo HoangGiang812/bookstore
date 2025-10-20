@@ -1,4 +1,3 @@
-// src/view/pages/AccountReviews.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Star } from 'lucide-react';
@@ -35,19 +34,17 @@ function StarsInput({ value, onChange }) {
 function useImageFallback(booksToReview) {
   const [imgMap, setImgMap] = useState({});
   useEffect(() => {
-    // Lọc các bookId chưa có ảnh trong item
     const need = [];
     const seen = new Set();
     for (const b of booksToReview || []) {
       const id = b.bookId;
-      if (!id || b.image) continue;          // đã có ảnh thì bỏ qua
+      if (!id || b.image) continue;
       if (seen.has(id)) continue;
       seen.add(id);
       need.push(id);
     }
     if (!need.length) return;
 
-    // Fetch ảnh từng sách (song song)
     (async () => {
       const updates = {};
       await Promise.all(
@@ -77,7 +74,7 @@ export default function AccountReviews() {
   const [loading, setLoading] = useState(true);
 
   // form state theo bookId
-  const [forms, setForms] = useState({}); // { [bookId]: { rating, title, content, posting } }
+  const [forms, setForms] = useState({}); // { [bookId]: { rating, content, posting } }
   const [posted, setPosted] = useState({}); // { [bookId]: true } -> đã gửi thành công
 
   useEffect(() => {
@@ -114,7 +111,6 @@ export default function AccountReviews() {
         });
       }
     }
-    // lọc trùng cùng bookId trong nhiều đơn (tuỳ bạn, ở đây giữ tất cả mục)
     return out;
   }, [orders]);
 
@@ -122,7 +118,7 @@ export default function AccountReviews() {
   const imgMap = useImageFallback(booksToReview);
 
   const onChangeForm = (bookId, patch) => {
-    setForms(f => ({ ...f, [bookId]: { rating: 5, title:'', content:'', ...f[bookId], ...patch } }));
+    setForms(f => ({ ...f, [bookId]: { rating: 5, content:'', ...f[bookId], ...patch } }));
   };
 
   const submit = async (b) => {
@@ -133,7 +129,7 @@ export default function AccountReviews() {
       onChangeForm(b.bookId, { posting: true });
       await Reviews.postReview(b.bookId, {
         rating: fv.rating,
-        title: fv.title || '',
+        title: '', // không cần tiêu đề ở trang này
         content: fv.content || '',
         photos: [],
       });
@@ -155,7 +151,7 @@ export default function AccountReviews() {
       </div>
 
       <div className="container px-4 py-6 grid lg:grid-cols-[280px,1fr] gap-6">
-        {/* Sidebar đơn giản (giống Orders) */}
+        {/* Sidebar */}
         <aside className="bg-white rounded-xl border shadow-sm">
           <div className="flex items-center gap-3 px-4 py-4 border-b">
             <div className="w-10 h-10 rounded-full bg-gray-100 grid place-items-center">👤</div>
@@ -171,6 +167,10 @@ export default function AccountReviews() {
             <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-100 text-gray-900 font-medium">
               <span className="w-6 text-center">⭐</span> Đánh giá sản phẩm
             </div>
+            {/* ✅ THÊM: Nhận xét của tôi */}
+            <Link to="/account/comments" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
+              <span className="w-6 text-center">💬</span> Nhận xét của tôi
+            </Link>
             <Link to="/account/addresses" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
               <span className="w-6 text-center">📍</span> Sổ địa chỉ
             </Link>
@@ -191,9 +191,9 @@ export default function AccountReviews() {
           ) : (
             <div className="space-y-5">
               {booksToReview.map((b) => {
-                const f = forms[b.bookId] || { rating: 5, title: '', content: '' };
+                const f = forms[b.bookId] || { rating: 5, content: '' };
                 const isPosted = !!posted[b.bookId];
-                const img = b.image || imgMap[b.bookId] || '/placeholder.jpg'; // ✅ ưu tiên item.image, fallback map
+                const img = b.image || imgMap[b.bookId] || '/placeholder.jpg';
                 return (
                   <div key={`${b.orderId}:${b.bookId}`} className="border rounded-lg p-4">
                     <div className="flex items-start gap-4">
@@ -214,16 +214,8 @@ export default function AccountReviews() {
                         ) : (
                           <div className="mt-3 space-y-3">
                             <div>
-                              <div className="text-sm text-gray-600 mb-1">Chọn số sao</div>
+                              <div className="text-sm text-gray-600 mb-1">Đánh giá</div>
                               <StarsInput value={f.rating ?? 5} onChange={(v)=>onChangeForm(b.bookId, { rating: v })}/>
-                            </div>
-                            <div>
-                              <input
-                                className="input w-full"
-                                placeholder="Tiêu đề (không bắt buộc)"
-                                value={f.title || ''}
-                                onChange={(e)=>onChangeForm(b.bookId, { title: e.target.value })}
-                              />
                             </div>
                             <div>
                               <textarea

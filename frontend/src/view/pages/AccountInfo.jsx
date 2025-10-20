@@ -1,5 +1,6 @@
 // src/view/pages/AccountInfo.jsx
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../store/useAuth';
 import { useUI } from '../../store/useUI';
 import api from '../../services/api';
@@ -220,78 +221,109 @@ export default function AccountInfo(){
   const [openDelete,setOpenDelete] = useState(false);
 
   return (
-    <div className="container px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Thông tin tài khoản</h1>
+    <div className="container px-4 py-6 grid lg:grid-cols-[280px,1fr] gap-6">
+      {/* Sidebar giống các trang khác */}
+      <aside className="bg-white rounded-xl border shadow-sm">
+        <div className="flex items-center gap-3 px-4 py-4 border-b">
+          <div className="w-10 h-10 rounded-full bg-gray-100 grid place-items-center">👤</div>
+          <div>
+            <div className="text-xs text-gray-500">Tài khoản của</div>
+            <div className="font-semibold">{user?.name || user?.email || "Bạn"}</div>
+          </div>
+        </div>
+        <nav className="p-2 text-[15px]">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-100 font-medium">
+            <span className="w-6 text-center">👤</span> Thông tin tài khoản
+          </div>
+          <Link to="/account/reviews" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <span className="w-6 text-center">⭐</span> Đánh giá sản phẩm
+          </Link>
+          <Link to="/account/comments" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <span className="w-6 text-center">💬</span> Nhận xét của tôi
+          </Link>
+          <Link to="/account/addresses" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <span className="w-6 text-center">📍</span> Sổ địa chỉ
+          </Link>
+          <Link to="/orders" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <span className="w-6 text-center">🧾</span> Quản lý đơn hàng
+          </Link>
+        </nav>
+      </aside>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        <div className="card p-5">
-          <div className="text-lg font-semibold mb-4">Thông tin cá nhân</div>
-          <div className="grid md:grid-cols-3 gap-6 items-start">
-            <div className="flex flex-col items-center gap-3">
-              <div className="relative">
-                <img src={avatar} onError={(e)=>{e.currentTarget.src='/avatar.png'}} className="w-32 h-32 rounded-full object-cover border shadow-sm" />
-                <button onClick={onPickAvatar} className="absolute -bottom-2 -right-2 px-2 py-1 rounded-full text-xs bg-gray-100 hover:bg-gray-200 border" title="Đổi ảnh">✎</button>
+      {/* Content */}
+      <section className="bg-white rounded-xl border shadow-sm p-5">
+        <h1 className="text-2xl font-bold mb-6">Thông tin tài khoản</h1>
+
+        <div className="grid lg:grid-cols-2 gap-6">
+          <div className="card p-5">
+            <div className="text-lg font-semibold mb-4">Thông tin cá nhân</div>
+            <div className="grid md:grid-cols-3 gap-6 items-start">
+              <div className="flex flex-col items-center gap-3">
+                <div className="relative">
+                  <img src={avatar} onError={(e)=>{e.currentTarget.src='/avatar.png'}} className="w-32 h-32 rounded-full object-cover border shadow-sm" />
+                  <button onClick={onPickAvatar} className="absolute -bottom-2 -right-2 px-2 py-1 rounded-full text-xs bg-gray-100 hover:bg-gray-200 border" title="Đổi ảnh">✎</button>
+                </div>
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile}/>
               </div>
-              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile}/>
+
+              <div className="md:col-span-2 space-y-4">
+                <Field label="Họ & Tên"><input className="input w-full" value={name} onChange={e=>setName(e.target.value)} /></Field>
+
+                <div>
+                  <div className="text-sm font-medium mb-1">Ngày sinh</div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <select className="input w-full" value={dob.d} onChange={e=>setDob({...dob,d:e.target.value})}><option value="">Ngày</option>{days.map(d=><option key={d} value={d}>{d}</option>)}</select>
+                    <select className="input w-full" value={dob.m} onChange={e=>setDob({...dob,m:e.target.value})}><option value="">Tháng</option>{months.map(m=><option key={m} value={m}>{m}</option>)}</select>
+                    <select className="input w-full" value={dob.y} onChange={e=>setDob({...dob,y:e.target.value})}><option value="">Năm</option>{years.map(y=><option key={y} value={y}>{y}</option>)}</select>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-sm font-medium mb-1">Giới tính</div>
+                  <div className="flex items-center gap-6">
+                    {['Nam','Nữ','Khác'].map(g=>(
+                      <label key={g} className="inline-flex items-center gap-2">
+                        <input type="radio" name="gender" className="accent-purple-600" checked={gender===g} onChange={()=>setGender(g)} />
+                        {g}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <Field label="Quốc tịch">
+                  <select className="input w-full" value={nation} onChange={e=>setNation(e.target.value)}>
+                    <option>Việt Nam</option><option>Hoa Kỳ</option><option>Nhật Bản</option><option>Khác</option>
+                  </select>
+                </Field>
+
+                <button onClick={saveProfile} className="btn-primary mt-2">Lưu thay đổi</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="card p-5 space-y-4">
+            <div className="text-lg font-semibold">Số điện thoại và Email</div>
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <div><div className="font-medium">Số điện thoại</div><div className="text-gray-600 text-sm">{userPhone || 'Chưa cập nhật'}</div></div>
+              <button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPhone(true)}>Cập nhật</button>
+            </div>
+            <div className="flex items-center justify-between p-3 border rounded-lg">
+              <div><div className="font-medium">Địa chỉ email</div><div className="text-gray-600 text-sm">{user?.email || 'Thêm địa chỉ email'}</div></div>
+              <button className="btn bg-gray-100 hover:bg-gray-200" disabled>Cập nhật</button>
             </div>
 
-            <div className="md:col-span-2 space-y-4">
-              <Field label="Họ & Tên"><input className="input w-full" value={name} onChange={e=>setName(e.target.value)} /></Field>
-
-              <div>
-                <div className="text-sm font-medium mb-1">Ngày sinh</div>
-                <div className="grid grid-cols-3 gap-3">
-                  <select className="input w/full" value={dob.d} onChange={e=>setDob({...dob,d:e.target.value})}><option value="">Ngày</option>{days.map(d=><option key={d} value={d}>{d}</option>)}</select>
-                  <select className="input w/full" value={dob.m} onChange={e=>setDob({...dob,m:e.target.value})}><option value="">Tháng</option>{months.map(m=><option key={m} value={m}>{m}</option>)}</select>
-                  <select className="input w/full" value={dob.y} onChange={e=>setDob({...dob,y:e.target.value})}><option value="">Năm</option>{years.map(y=><option key={y} value={y}>{y}</option>)}</select>
-                </div>
-              </div>
-
-              <div>
-                <div className="text-sm font-medium mb-1">Giới tính</div>
-                <div className="flex items-center gap-6">
-                  {['Nam','Nữ','Khác'].map(g=>(
-                    <label key={g} className="inline-flex items-center gap-2">
-                      <input type="radio" name="gender" className="accent-purple-600" checked={gender===g} onChange={()=>setGender(g)} />
-                      {g}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <Field label="Quốc tịch">
-                <select className="input w-full" value={nation} onChange={e=>setNation(e.target.value)}>
-                  <option>Việt Nam</option><option>Hoa Kỳ</option><option>Nhật Bản</option><option>Khác</option>
-                </select>
-              </Field>
-
-              <button onClick={saveProfile} className="btn-primary mt-2">Lưu thay đổi</button>
-            </div>
+            <div className="text-lg font-semibold pt-2">Bảo mật</div>
+            <div className="flex items-center justify-between p-3 border rounded-lg"><div className="font-medium">Thiết lập mật khẩu</div><button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPassword(true)}>Cập nhật</button></div>
+            <div className="flex items-center justify-between p-3 border rounded-lg"><div className="font-medium">Thiết lập mã PIN</div><button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPin(true)}>Thiết lập</button></div>
+            <div className="flex items-center justify-between p-3 border rounded-lg"><div className="font-medium">Yêu cầu xoá tài khoản</div><button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenDelete(true)}>Yêu cầu</button></div>
           </div>
         </div>
 
-        <div className="card p-5 space-y-4">
-          <div className="text-lg font-semibold">Số điện thoại và Email</div>
-          <div className="flex items-center justify-between p-3 border rounded-lg">
-            <div><div className="font-medium">Số điện thoại</div><div className="text-gray-600 text-sm">{userPhone || 'Chưa cập nhật'}</div></div>
-            <button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPhone(true)}>Cập nhật</button>
-          </div>
-          <div className="flex items-center justify-between p-3 border rounded-lg">
-            <div><div className="font-medium">Địa chỉ email</div><div className="text-gray-600 text-sm">{user?.email || 'Thêm địa chỉ email'}</div></div>
-            <button className="btn bg-gray-100 hover:bg-gray-200" disabled>Cập nhật</button>
-          </div>
-
-          <div className="text-lg font-semibold pt-2">Bảo mật</div>
-          <div className="flex items-center justify-between p-3 border rounded-lg"><div className="font-medium">Thiết lập mật khẩu</div><button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPassword(true)}>Cập nhật</button></div>
-          <div className="flex items-center justify-between p-3 border rounded-lg"><div className="font-medium">Thiết lập mã PIN</div><button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPin(true)}>Thiết lập</button></div>
-          <div className="flex items-center justify-between p-3 border rounded-lg"><div className="font-medium">Yêu cầu xoá tài khoản</div><button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenDelete(true)}>Yêu cầu</button></div>
-        </div>
-      </div>
-
-      <PhoneModal open={openPhone} onClose={()=>setOpenPhone(false)} defaultValue={userPhone} onUpdated={async (p)=>{ setUserPhone(p); try{ const me=await api.get('/users/me'); setUser?.(me);}catch{}}} />
-      <PasswordModal open={openPassword} onClose={()=>setOpenPassword(false)} />
-      <PinModal open={openPin} onClose={()=>setOpenPin(false)} />
-      <DeleteRequestModal open={openDelete} onClose={()=>setOpenDelete(false)} />
+        <PhoneModal open={openPhone} onClose={()=>setOpenPhone(false)} defaultValue={userPhone} onUpdated={async (p)=>{ setUserPhone(p); try{ const me=await api.get('/users/me'); setUser?.(me);}catch{}}} />
+        <PasswordModal open={openPassword} onClose={()=>setOpenPassword(false)} />
+        <PinModal open={openPin} onClose={()=>setOpenPin(false)} />
+        <DeleteRequestModal open={openDelete} onClose={()=>setOpenDelete(false)} />
+      </section>
     </div>
   );
 }

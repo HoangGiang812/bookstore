@@ -11,7 +11,7 @@ import {
 import { upload, importBooksCSV } from '../../controllers/admin/bookImportController.js';
 
 import { dashboardKpis } from '../../controllers/admin/dashboardController.js';
-import { addOrderNote, refundOrder } from '../../controllers/admin/orderAdminController.js';
+import { addOrderNote, refundOrder, approveCancel, rejectCancel } from '../../controllers/admin/orderAdminController.js';
 import { lockUnlockUser } from '../../controllers/admin/userAdminController.js';
 import { couponUsages, pauseCoupon, resumeCoupon } from '../../controllers/admin/couponController.js';
 
@@ -100,10 +100,13 @@ r.patch('/orders/:id/status', ...guard, adminAudit, OrdersCtrl.updateStatus);
 r.post('/orders/:id/notes', ...guard, adminAudit, addOrderNote);
 r.post('/orders/:id/refund', ...guard, adminAudit, refundOrder);
 
+// ✅ HUỶ ĐƠN: duyệt / từ chối yêu cầu huỷ do khách gửi
+r.post('/orders/:id/cancel/approve', ...guard, adminAudit, approveCancel);
+r.post('/orders/:id/cancel/reject',  ...guard, adminAudit, rejectCancel);
+
 // RMA
 r.get('/rmas', ...guard, RMACtrl.list);
 r.patch('/rmas/:id', ...guard, adminAudit, RMACtrl.update);
-
 
 r.use('/posts', postsAdminRoutes);
 

@@ -1,6 +1,6 @@
-// src/controllers/orderController.js
+// backend/src/controllers/orderController.js
 import mongoose from 'mongoose';
-import { Order } from '../models/Order.js';
+import Order from '../models/Order.js';               // ⬅️ sửa: default import
 import { Setting } from '../models/Setting.js';
 import { Book } from '../models/Book.js';
 import { applyCoupon, markCouponUsed } from '../utils/coupon.js';
@@ -135,6 +135,8 @@ function toApiOrder(o) {
     notesInternal: o.notesInternal || [],
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
+    cancelRequest: o.cancelRequest || undefined,
+    cancelledAt: o.cancelledAt || undefined,
   };
 }
 
@@ -340,18 +342,41 @@ export async function getMyOrder(req, res) {
   }
 }
 
+/**
+ * KHÁCH HUỶ ĐƠN:
+ * - Nếu đơn còn pending và CHƯA thanh toán -> huỷ ngay (status=cancelled).
+ * - Ngược lại -> tạo "yêu cầu huỷ" (status=cancel_requested) để admin duyệt.
+ */
 export async function cancelMyOrder(req, res) {
   try {
+    const { reason = '' } = req.body || {};
     const o = await Order.findOne({ _id: req.params.id, userId: req.user._id });
     if (!o) return res.status(404).json({ message: 'Not found' });
-    if (o.status !== 'pending') return res.status(400).json({ message: 'Chỉ hủy khi trạng thái pending' });
 
-    o.status = 'cancelled'; // đồng nhất
-    pushHistory(o, 'cancel', req.user?.email || req.user?.name || 'user', 'User canceled order');
-    o.cancelledAt = new Date();
+    const paid =
+      String(o.payment?.status || '').toLowerCase() === 'paid' ||
+      !!o.payment?.capturedAt;
 
+    if (o.status === 'pending' && !paid) {
+      // Huỷ ngay
+      o.status = 'cancelled';
+      o.cancelledAt = new Date();
+      pushHistory(o, 'cancel', req.user?.email || req.user?.name || 'user', reason ? `User canceled: ${reason}` : 'User canceled');
+      await o.save();
+      return res.json({ ok: 1, message: 'Đã huỷ đơn', order: toApiOrder(o.toObject()) });
+    }
+
+    // Tạo yêu cầu huỷ để admin duyệt
+    o.status = 'cancel_requested';
+    o.cancelRequest = {
+      requested: true,
+      reason: reason || '',
+      at: new Date(),
+    };
+    pushHistory(o, 'cancel_requested', req.user?.email || req.user?.name || 'user', reason || 'User requested cancel');
     await o.save();
-    return res.json({ message: 'Đã hủy đơn', order: toApiOrder(o.toObject()) });
+
+    return res.json({ ok: 1, message: 'Đã gửi yêu cầu huỷ. Vui lòng chờ admin xét duyệt.', order: toApiOrder(o.toObject()) });
   } catch (e) {
     console.error('cancelMyOrder error:', e);
     return res.status(500).json({ message: 'cancel_failed' });
@@ -394,13 +419,14 @@ export async function trackingMyOrder(req, res) {
 
     add('created', 'Đã tạo đơn', o.createdAt);
     if (o.paidAt || o.payment?.status === 'paid') add('paid', 'Đã thanh toán', o.paidAt || o.payment?.capturedAt);
-    if (o.processingAt || ['processing','shipping','completed'].includes(o.status)) add('processing', 'Đang xử lý', o.processingAt);
+    if (o.processingAt || ['processing','shipping','completed','cancel_requested'].includes(o.status)) add('processing', 'Đang xử lý', o.processingAt);
     if (o.shippedAt || o.status === 'shipping') add('shipping', 'Đang vận chuyển', o.shippedAt);
     if (o.deliveredAt || o.status === 'completed') add('delivered', 'Đã giao', o.deliveredAt);
+    if (o.status === 'cancel_requested') add('cancel_requested', 'Yêu cầu huỷ (chờ duyệt)', o.cancelRequest?.at);
     if (o.cancelledAt || o.status === 'cancelled' || o.status === 'canceled') add('cancelled', 'Đã huỷ', o.cancelledAt);
 
     if (Array.isArray(o.history)) {
-      const map = { create:'created', paid:'paid', process:'processing', ship:'shipping', deliver:'delivered', cancel:'cancelled' };
+      const map = { create:'created', paid:'paid', process:'processing', ship:'shipping', deliver:'delivered', cancel:'cancelled', cancel_requested:'cancel_requested' };
       o.history.forEach(h=>{
         const code = map[h.type] || h.type;
         if (!events.some(e=>e.code===code && e.at)) add(code, h.type, h.ts, h.note);

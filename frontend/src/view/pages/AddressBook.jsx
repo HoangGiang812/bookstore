@@ -1,5 +1,6 @@
 // src/view/pages/AddressBook.jsx
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../store/useAuth';
 import { useUI } from '../../store/useUI';
 import api from '../../services/api';
@@ -176,22 +177,22 @@ function AddressModal({ open, onClose, onSave, user }) {
           <div className="grid md:grid-cols-2 gap-4">
             <Field label="Nhãn"><input className="input w-full" placeholder="Nhà riêng / Cơ quan" value={f.label} onChange={e=>setF({...f,label:e.target.value})}/></Field>
             <Field label="Người nhận" required><input className="input w-full" placeholder="Nguyễn Văn A" value={f.receiver} onChange={e=>setF({...f,receiver:e.target.value})}/></Field>
-            <Field label="Số điện thoại" required><input className="input w/full" placeholder="09xxxxxxxx" value={f.phone} onChange={e=>setF({...f,phone:e.target.value})}/></Field>
+            <Field label="Số điện thoại" required><input className="input w-full" placeholder="09xxxxxxxx" value={f.phone} onChange={e=>setF({...f,phone:e.target.value})}/></Field>
             <Field label="Tỉnh/Thành" required>
               <input className="input w-full" list="vn-provinces" placeholder="TP.HCM / Hà Nội / …" value={f.province} onChange={e=>setF({ ...f, province:e.target.value, district:'', ward:'' })}/>
               <datalist id="vn-provinces">{VN_PROVINCES.map(p=> <option key={p} value={p} />)}</datalist>
             </Field>
             <Field label="Quận/Huyện">
-              <input className="input w/full" list="vn-districts" placeholder="Q1 / Bình Thạnh / …" value={f.district} onChange={e=>setF({ ...f, district:e.target.value, ward:'' })} disabled={!f.province}/>
+              <input className="input w-full" list="vn-districts" placeholder="Q1 / Bình Thạnh / …" value={f.district} onChange={e=>setF({ ...f, district:e.target.value, ward:'' })} disabled={!f.province}/>
               <datalist id="vn-districts">{districts.map(d=> <option key={d} value={d} />)}</datalist>
             </Field>
             <Field label="Phường/Xã">
-              <input className="input w/full" list="vn-wards" placeholder="Bến Nghé / …" value={f.ward} onChange={e=>setF({ ...f, ward:e.target.value })} disabled={!f.district}/>
+              <input className="input w-full" list="vn-wards" placeholder="Bến Nghé / …" value={f.ward} onChange={e=>setF({ ...f, ward:e.target.value })} disabled={!f.district}/>
               <datalist id="vn-wards">{wards.map(w=> <option key={w} value={w} />)}</datalist>
             </Field>
           </div>
           <div className="mt-4">
-            <Field label="Địa chỉ chi tiết" required><input className="input w/full" placeholder="123 Lê Lợi…" value={f.detail} onChange={e=>setF({...f,detail:e.target.value})}/></Field>
+            <Field label="Địa chỉ chi tiết" required><input className="input w-full" placeholder="123 Lê Lợi…" value={f.detail} onChange={e=>setF({...f,detail:e.target.value})}/></Field>
           </div>
           <label className="mt-4 inline-flex items-center gap-2 select-none">
             <input type="checkbox" className="accent-purple-600" checked={!!f.isDefault} onChange={e=>setF({...f,isDefault:e.target.checked})}/>
@@ -225,48 +226,79 @@ export default function AddressBook(){
   const setDefault = async (id)=>{ await apiAddr.setDefault(id); await reload(); };
 
   return (
-    <div className="container px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Sổ địa chỉ</h1>
+    <div className="container px-4 py-6 grid lg:grid-cols-[280px,1fr] gap-6">
+      {/* Sidebar giống các trang khác */}
+      <aside className="bg-white rounded-xl border shadow-sm">
+        <div className="flex items-center gap-3 px-4 py-4 border-b">
+          <div className="w-10 h-10 rounded-full bg-gray-100 grid place-items-center">👤</div>
+          <div>
+            <div className="text-xs text-gray-500">Tài khoản của</div>
+            <div className="font-semibold">{user?.name || user?.email || "Bạn"}</div>
+          </div>
+        </div>
+        <nav className="p-2 text-[15px]">
+          <Link to="/account/info" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <span className="w-6 text-center">👤</span> Thông tin tài khoản
+          </Link>
+          <Link to="/account/reviews" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <span className="w-6 text-center">⭐</span> Đánh giá sản phẩm
+          </Link>
+          <Link to="/account/comments" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <span className="w-6 text-center">💬</span> Nhận xét của tôi
+          </Link>
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-100 font-medium">
+            <span className="w-6 text-center">📍</span> Sổ địa chỉ
+          </div>
+          <Link to="/orders" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <span className="w-6 text-center">🧾</span> Quản lý đơn hàng
+          </Link>
+        </nav>
+      </aside>
 
-      <div className="card p-5">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-lg font-semibold">Danh sách địa chỉ</div>
-          <button onClick={()=>setOpenModal(true)} className="btn-primary">+ Thêm địa chỉ</button>
+      {/* Content */}
+      <section className="bg-white rounded-xl border shadow-sm p-5">
+        <h1 className="text-2xl font-bold mb-6">Sổ địa chỉ</h1>
+
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-lg font-semibold">Danh sách địa chỉ</div>
+            <button onClick={()=>setOpenModal(true)} className="btn-primary">+ Thêm địa chỉ</button>
+          </div>
+
+          {loading ? (
+            <div className="text-gray-500">Đang tải…</div>
+          ) : list.length===0 ? (
+            <div className="text-gray-600">Chưa có địa chỉ</div>
+          ) : (
+            <div className="space-y-3">
+              {list.map(a=>{
+                const id=String(a._id||a.id);
+                return (
+                  <div key={id} className="p-3 border rounded-lg flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <b>{a.receiver||'Người nhận'}</b>
+                        {a.isDefault && <span className="text-xs px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">Mặc định</span>}
+                      </div>
+                      {a.phone && <div className="text-sm text-gray-600">{a.phone}</div>}
+                      <div className="text-sm text-gray-600">{[a.detail,a.ward,a.district,a.province].filter(Boolean).join(', ')}</div>
+                      {a.label && <div className="text-xs text-gray-500 mt-1">Nhãn: {a.label}</div>}
+                    </div>
+                    <div className="flex gap-2">
+                      {!a.isDefault && (
+                        <button onClick={()=>setDefault(id)} className="btn bg-gray-100 hover:bg-gray-200">Đặt mặc định</button>
+                      )}
+                      <button onClick={()=>removeAddress(id)} className="btn bg-gray-100 hover:bg-gray-200">Xoá</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
-        {loading ? (
-          <div className="text-gray-500">Đang tải…</div>
-        ) : list.length===0 ? (
-          <div className="text-gray-600">Chưa có địa chỉ</div>
-        ) : (
-          <div className="space-y-3">
-            {list.map(a=>{
-              const id=String(a._id||a.id);
-              return (
-                <div key={id} className="p-3 border rounded-lg flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <b>{a.receiver||'Người nhận'}</b>
-                      {a.isDefault && <span className="text-xs px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">Mặc định</span>}
-                    </div>
-                    {a.phone && <div className="text-sm text-gray-600">{a.phone}</div>}
-                    <div className="text-sm text-gray-600">{[a.detail,a.ward,a.district,a.province].filter(Boolean).join(', ')}</div>
-                    {a.label && <div className="text-xs text-gray-500 mt-1">Nhãn: {a.label}</div>}
-                  </div>
-                  <div className="flex gap-2">
-                    {!a.isDefault && (
-                      <button onClick={()=>setDefault(id)} className="btn bg-gray-100 hover:bg-gray-200">Đặt mặc định</button>
-                    )}
-                    <button onClick={()=>removeAddress(id)} className="btn bg-gray-100 hover:bg-gray-200">Xoá</button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <AddressModal open={openModal} onClose={()=>setOpenModal(false)} onSave={addAddress} user={user}/>
+        <AddressModal open={openModal} onClose={()=>setOpenModal(false)} onSave={async (a)=>{ await addressApi(uid).add(a); await (async()=>{ const items = await addressApi(uid).list(); setList(items); })(); }} user={user}/>
+      </section>
     </div>
   );
 }
