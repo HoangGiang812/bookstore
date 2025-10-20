@@ -1,3 +1,4 @@
+// src/view/App.jsx
 import { Routes, Route, Navigate } from 'react-router-dom'
 import ScrollToTop from './components/ScrollToTop'
 
@@ -24,7 +25,12 @@ import ResetPassword from './pages/auth/ResetPassword'
 import AboutUsPage from './pages/AboutUsPage'
 import BlogPage from './pages/BlogPage'
 import PostDetailPage from './pages/PostDetailPage'
+import AccountInfo from './pages/AccountInfo'
+import AddressBook from './pages/AddressBook'
 
+// ✅ NEW: trang “Đánh giá sản phẩm” & “Nhận xét của tôi”
+import AccountReviews from './pages/AccountReviews'
+import AccountComments from './pages/AccountComments'
 
 // Admin
 import AdminRoute from './routes/AdminRoute'
@@ -32,7 +38,6 @@ import AdminDashboard from './pages/admin/AdminDashboard'
 
 // Toast
 import Toast from './components/Toast'
-
 
 export default function App() {
   return (
@@ -59,6 +64,12 @@ export default function App() {
           <Route path="/authors/:id" element={<AuthorDetail />} />
           <Route path="/articles" element={<BlogPage />} />
           <Route path="/articles/:slug" element={<PostDetailPage />} />
+          <Route path="/account/info" element={<AccountInfo />} />
+          <Route path="/account/addresses" element={<AddressBook />} />
+
+          {/* ✅ NEW routes */}
+          <Route path="/account/reviews" element={<AccountReviews />} />
+          <Route path="/account/comments" element={<AccountComments />} />
         </Route>
 
         <Route element={<AdminRoute />}>

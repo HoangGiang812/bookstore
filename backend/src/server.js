@@ -26,10 +26,14 @@ import categoriesRouter from './routes/categories.js';
 import uploadRouter from './routes/uploads.js';
 import postRoutes from './routes/posts.js';
 import publicRoutes from './routes/public.js';
+
 const app = express();
 
 // CORS: chỉnh origin theo ENV nếu cần
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173', credentials: true }));
+app.use(cors({
+  origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
+  credentials: true
+}));
 app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '2mb' }));
@@ -38,31 +42,31 @@ app.use(cookieParser());
 
 app.get('/health', (_, res) => res.json({ ok: true }));
 
+// ✅ GẮN TOKEN SỚM CHO TẤT CẢ REQUEST (để /api/books/:id/reviews có req.user)
+app.use(attachUserFromToken);
+
 /* =======================
  *  PUBLIC ROUTES
  * ======================= */
 app.use('/api/auth', authRoutes);
-app.use('/api/books', bookRoutes);          // dùng books.js làm router sách duy nhất
+app.use('/api/books', bookRoutes);          // books.js có cả endpoints reviews/ratings
 app.use('/api/authors', authorRoutes);
 app.use('/api/categories', categoriesRouter);
 app.use('/api/posts', postRoutes);
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-
-// Chỉ gắn token cho các route cần bảo vệ
-app.use(attachUserFromToken);
 
 /* =======================
  *  PROTECTED ROUTES
  * ======================= */
 app.use('/api/users', userRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api/reviews', reviewRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/upload', uploadRouter);
 app.use('/api/public', publicRoutes);
+app.use(reviewRoutes);
 
 // 404 & Error handlers
 app.use(notFound);

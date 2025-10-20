@@ -66,6 +66,40 @@ export default function Header() {
   const [flyItems, setFlyItems] = useState([]);
   const [toasts, setToasts] = useState([]);
 
+  // --- trạng thái dropdown tài khoản ---
+  const [openAcc, setOpenAcc] = useState(false);
+  const accRef = useRef(null);
+  const menuRef = useRef(null);
+  const hoverTimer = useRef(null);
+
+  // helpers giữ/đóng menu có độ trễ nhỏ
+  const openNow = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    setOpenAcc(true);
+  };
+  const scheduleClose = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setOpenAcc(false), 150);
+  };
+  const cancelClose = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+  };
+
+  // đóng khi click ra ngoài
+  useEffect(() => {
+    function onDocDown(e) {
+      if (!openAcc) return;
+      const t = e.target;
+      if (
+        accRef.current?.contains(t) ||
+        menuRef.current?.contains(t)
+      ) return;
+      setOpenAcc(false);
+    }
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, [openAcc]);
+
   useEffect(() => {
     setCount(readCartCount(user?.id));
   }, [user?.id]);
@@ -337,7 +371,7 @@ export default function Header() {
             <Heart className="w-6 h-6" />
           </Link>
 
-          <Link
+        <Link
             to="/cart"
             data-cart-target
             className="relative p-2 hover:bg-gray-100 rounded-lg"
@@ -363,36 +397,54 @@ export default function Header() {
                   Quản trị
                 </button>
               )}
-              <button
-                onClick={() => nav("/account")}
-                className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg"
-                title="Tài khoản"
+
+              {/* Nút tài khoản + DROPDOWN (sửa: giữ mở khi rê chuột vào menu) */}
+              <div
+                className="relative"
+                onMouseEnter={openNow}
+                onMouseLeave={scheduleClose}
               >
-                {user?.avatar ? (
-                  <img
-                    src={user.avatar}
-                    alt={user.name || "user"}
-                    className="w-8 h-8 rounded-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-full bg-[var(--brand)] text-white flex items-center justify-center">
-                    <UserIcon size={18} />
+                <button
+                  ref={accRef}
+                  className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg"
+                  title="Tài khoản"
+                  onClick={() => (openAcc ? setOpenAcc(false) : setOpenAcc(true))}
+                >
+                  {user?.avatar ? (
+                    <img
+                      src={user.avatar}
+                      alt={user.name || "user"}
+                      className="w-8 h-8 rounded-full object-cover"
+                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                    />
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-[var(--brand)] text-white flex items-center justify-center">
+                      <UserIcon size={18} />
+                    </div>
+                  )}
+                  <span className="hidden md:block">Hi, {displayName}</span>
+                </button>
+
+                {openAcc && (
+                  <div
+                    ref={menuRef}
+                    role="menu"
+                    className="absolute right-0 mt-2 w-64 rounded-xl border bg-white shadow-lg p-2 z-50"
+                    onMouseEnter={cancelClose}
+                    onMouseLeave={scheduleClose}
+                  >
+                    <Link to="/account/info" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Thông tin tài khoản</Link>
+                    <Link to="/account/addresses" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Sổ địa chỉ</Link>
+                    <Link to="/orders" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Đơn hàng của tôi</Link>
+                    <button
+                      onClick={() => { logoutAll(); nav("/"); }}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-rose-600"
+                    >
+                      Đăng xuất
+                    </button>
                   </div>
                 )}
-                <span className="hidden md:block">Hi, {displayName}</span>
-              </button>
-              <button
-                onClick={() => {
-                  logoutAll();
-                  nav("/");
-                }}
-                className="px-3 py-2 bg-gray-100 rounded-lg hover:bg-gray-200"
-              >
-                Đăng xuất
-              </button>
+              </div>
             </div>
           ) : (
             <Link to="/login" className="btn-primary">

@@ -5,12 +5,25 @@ import api from './api'
 export const getBooks = async (params = {}) => {
   const q = new URLSearchParams(params).toString()
   const data = await api.get(`/api/books${q ? `?${q}` : ''}`)
-  return Array.isArray(data) ? data : (data.items || [])
+  const items = Array.isArray(data) ? data : (data.items || [])
+
+  // ✅ Chuẩn hoá trường cho UI: luôn có rating & reviewCount
+  return items.map(b => ({
+    ...b,
+    rating: b.rating ?? b.ratingAvg ?? 0,
+    reviewCount: b.reviewCount ?? b.ratingCnt ?? b.reviewsCount ?? 0,
+  }))
 }
 
 export const getBook = async (id) => {
   if (!id) throw new Error('Missing book id')
-  return api.get(`/api/books/${id}`)
+  const b = await api.get(`/api/books/${id}`)
+  // ✅ Chuẩn hoá trường cho UI: luôn có rating & reviewCount
+  return {
+    ...b,
+    rating: b.rating ?? b.ratingAvg ?? 0,
+    reviewCount: b.reviewCount ?? b.ratingCnt ?? b.reviewsCount ?? 0,
+  }
 }
 
 export const relatedBooks = async (book) => {
@@ -38,12 +51,26 @@ export const getAuthors = async (params = {}) => {
 
 export const getPublishers = async () => []
 
-// ===== Reviews =====
-export const getReviews = async (bookId) => {
-  try { return await api.get(`/api/reviews/${bookId}`) } catch { return [] }
+// ===== Reviews (giữ wrapper để không vỡ code cũ, trỏ đúng endpoint BE mới) =====
+export const getReviews = async (bookId, params = {}) => {
+  if (!bookId) return []
+  const q = new URLSearchParams(params).toString()
+  try {
+    return await api.get(`/api/books/${bookId}/reviews${q ? `?${q}` : ''}`)
+  } catch {
+    return []
+  }
 }
-export const addReview  = async (payload) => {
-  try { return await api.post('/api/reviews', payload) } catch { return null }
+
+// Với code cũ đang gọi addReview(payload) thì payload cần có bookId
+export const addReview  = async (payload = {}) => {
+  try {
+    const { bookId, ...rest } = payload
+    if (!bookId) throw new Error('Missing bookId')
+    return await api.post(`/api/books/${bookId}/reviews`, rest)
+  } catch {
+    return null
+  }
 }
 
 // ===== Search suggestions (match 1 phần: sách + tác giả) =====

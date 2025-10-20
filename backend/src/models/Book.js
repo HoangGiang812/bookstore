@@ -20,6 +20,11 @@ const BookSchema = new Schema(
     stock: { type: Number, default: 0, min: 0 },
     status: { type: String, enum: ['available', 'out-of-stock'], default: 'available' },
 
+    // --- Rating tổng hợp (dùng để hiển thị dưới tên sách)
+    ratingAvg: { type: Number, default: 0 }, // điểm TB (1 chữ số thập phân)
+    ratingCnt: { type: Number, default: 0 }, // số lượng đánh giá
+
+    // giữ các field cũ nếu có
     rating: Number,
     soldCount: Number,
     publishYear: Number,
@@ -74,7 +79,8 @@ BookSchema.pre('save', function (next) {
 // Index bổ sung
 BookSchema.index({ soldCount: -1 });
 BookSchema.index({ publishYear: -1 });
-// (đã index trong field, nhưng có thể giữ – Mongo sẽ hợp nhất/cảnh báo trùng)
+BookSchema.index({ ratingAvg: -1 });
+BookSchema.index({ ratingCnt: -1 });
 
 const Book = mongoose.models.Book || mongoose.model('Book', BookSchema);
 export { Book };
