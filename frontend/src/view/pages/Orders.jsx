@@ -1,6 +1,7 @@
 // src/view/pages/Orders.jsx
-import { list, cancel, rma } from '../../services/orders'; // ⬅️ sửa đường dẫn
+import { list, cancel, rma } from '../../services/orders';
 import { useAuth } from '../../store/useAuth';
+import { useUI } from '../../store/useUI';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -10,8 +11,18 @@ const TABS = [
   { key: 'processing',        label: 'Đang xử lý' },
   { key: 'shipping',          label: 'Đang vận chuyển' },
   { key: 'completed',         label: 'Đã giao' },
-  { key: 'cancel_requested',  label: 'Chờ huỷ' },            // ⬅️ thêm tab
+  { key: 'cancel_requested',  label: 'Chờ huỷ' },
   { key: 'cancelled',         label: 'Đã huỷ' },
+];
+
+const REASONS = [
+  { key: 'changed_mind',   label: 'Đặt nhầm / Đổi ý' },
+  { key: 'slow_delivery',  label: 'Thời gian giao hàng quá lâu' },
+  { key: 'duplicate',      label: 'Đặt trùng đơn' },
+  { key: 'found_better',   label: 'Tìm được giá tốt hơn' },
+  { key: 'edit_order',     label: 'Muốn sửa/thêm sản phẩm trong đơn' },
+  { key: 'wrong_info',     label: 'Muốn đổi địa chỉ / số điện thoại' },
+  { key: 'other',          label: 'Khác (ghi rõ)' },
 ];
 
 const money  = (n) => (Number(n || 0)).toLocaleString('vi-VN') + 'đ';
@@ -29,7 +40,7 @@ const labelStatus = (s) => {
     shipped: 'Đang vận chuyển',
     completed: 'Đã giao',
     delivered: 'Đã giao',
-    cancel_requested: 'Chờ huỷ (đợi duyệt)',                 // ⬅️ hiển thị trạng thái mới
+    cancel_requested: 'Chờ huỷ (đợi duyệt)',
     cancelled: 'Đã huỷ',
     canceled: 'Đã huỷ',
   };
@@ -38,16 +49,26 @@ const labelStatus = (s) => {
 
 export default function Orders() {
   const { user } = useAuth();
-  const [tab, setTab]       = useState('all');
-  const [q, setQ]           = useState('');
-  const [items, setItems]   = useState([]);
+  const { showToast } = useUI();
+
+  const [tab, setTab] = useState('all');
+  const [q, setQ] = useState('');
+  const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  // State cho dialog huỷ
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelOrderId, setCancelOrderId] = useState(null);
+  const [cancelIsPending, setCancelIsPending] = useState(false); // true nếu status 'pending' => huỷ ngay
+  const [reasonKey, setReasonKey] = useState('');
+  const [reasonOther, setReasonOther] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const reload = async () => {
     if (!user?.id && !user?._id) return;
     setLoading(true);
     try {
-      const data = await list({}); // service đã dùng token để biết "mine"
+      const data = await list({});
       setItems(Array.isArray(data) ? data : (data?.items || []));
     } finally {
       setLoading(false);
@@ -68,14 +89,54 @@ export default function Orders() {
     });
   }, [items, tab, q]);
 
-  // helper gọi huỷ (hỏi lý do)
-  const requestCancel = async (orderId, isPending) => {
-    let reason = '';
-    if (!isPending) {
-      reason = window.prompt('Lý do huỷ (tuỳ chọn):', '') || '';
+  // Mở dialog chọn lý do
+  const openCancelDialog = (orderId, isPending) => {
+    setCancelOrderId(orderId);
+    setCancelIsPending(!!isPending);
+    setReasonKey('');
+    setReasonOther('');
+    setCancelOpen(true);
+  };
+
+  // Điều kiện có thể submit
+  const canSubmitCancel = () => {
+    if (reasonKey === 'other') return reasonOther.trim().length > 0;
+    return Boolean(reasonKey);
+  };
+
+  // Gửi yêu cầu huỷ
+  const submitCancel = async () => {
+    if (!cancelOrderId || !canSubmitCancel()) return;
+
+    const picked = REASONS.find(r => r.key === reasonKey);
+    const finalReason = reasonKey === 'other'
+      ? (reasonOther || '').trim()
+      : (picked?.label || '');
+
+    setSubmitting(true);
+    try {
+      await cancel(cancelOrderId, { reason: finalReason });
+      setCancelOpen(false);
+      setCancelOrderId(null);
+      showToast({
+        type: 'success',
+        title: cancelIsPending ? 'Đã huỷ đơn' : 'Đã gửi yêu cầu huỷ',
+        msg: cancelIsPending
+          ? 'Đơn hàng đã được huỷ thành công.'
+          : 'Yêu cầu huỷ đã được gửi, vui lòng chờ xét duyệt.',
+        duration: 2500,
+      });
+      await reload();
+    } catch (e) {
+      showToast({
+        type: 'error',
+        title: 'Không thể huỷ đơn',
+        msg: e?.message || 'Vui lòng thử lại sau.',
+        duration: 3000,
+      });
+    } finally {
+      setSubmitting(false);
     }
-    await cancel(orderId, { reason });   // services/orders → POST /mine/:id/cancel (BE đọc reason)
-    await reload();
   };
 
   return (
@@ -184,9 +245,9 @@ export default function Orders() {
                   const total = o.total ?? o.pricing?.grandTotal ?? 0;
                   const st    = normStatus(o.status);
 
-                  const showCancelNow   = st === 'pending';                                    // huỷ ngay
-                  const showCancelReq   = ['processing','shipping'].includes(st);              // gửi yêu cầu huỷ
-                  const isCancelWait    = st === 'cancel_requested';
+                  const showCancelNow = st === 'pending';                       // huỷ ngay
+                  const showCancelReq = ['processing','shipping'].includes(st); // gửi yêu cầu huỷ
+                  const isCancelWait  = st === 'cancel_requested';
 
                   return (
                     <div key={id} className="rounded-lg border p-4">
@@ -209,7 +270,7 @@ export default function Orders() {
                           {(showCancelNow || showCancelReq) && (
                             <div className="flex gap-2 justify-end mt-2">
                               <button
-                                onClick={() => requestCancel(id, showCancelNow)}
+                                onClick={() => openCancelDialog(id, showCancelNow)}
                                 className="btn bg-gray-100 hover:bg-gray-200"
                               >
                                 {showCancelNow ? 'Huỷ đơn' : 'Yêu cầu huỷ'}
@@ -217,9 +278,23 @@ export default function Orders() {
                               {showCancelNow && (
                                 <button
                                   onClick={async () => {
-                                    await rma(id, 'Không phù hợp');
-                                    alert('Đã gửi yêu cầu đổi/trả');
-                                    await reload();
+                                    try {
+                                      await rma(id, 'Không phù hợp');
+                                      showToast({
+                                        type: 'success',
+                                        title: 'Đã gửi yêu cầu đổi/trả',
+                                        msg: 'Chúng tôi sẽ liên hệ hỗ trợ sớm.',
+                                        duration: 2500,
+                                      });
+                                      await reload();
+                                    } catch (e) {
+                                      showToast({
+                                        type: 'error',
+                                        title: 'Không thể gửi yêu cầu đổi/trả',
+                                        msg: e?.message || 'Vui lòng thử lại sau.',
+                                        duration: 3000,
+                                      });
+                                    }
                                   }}
                                   className="btn bg-gray-100 hover:bg-gray-200"
                                 >
@@ -252,6 +327,79 @@ export default function Orders() {
           </div>
         </section>
       </div>
+
+      {/* Dialog chọn lý do huỷ */}
+      {cancelOpen && (
+        <div className="fixed inset-0 z-[1000]">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => !submitting && setCancelOpen(false)}
+          />
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div
+              role="dialog"
+              aria-modal="true"
+              className="w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-black/5"
+            >
+              <div className="px-5 pt-5">
+                <h2 className="text-lg font-semibold">
+                  {cancelIsPending ? 'Huỷ đơn hàng' : 'Gửi yêu cầu huỷ'}
+                </h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  Vui lòng chọn lý do huỷ để chúng tôi phục vụ tốt hơn.
+                </p>
+              </div>
+
+              <div className="px-5 py-4 space-y-2">
+                {REASONS.map(r => (
+                  <label
+                    key={r.key}
+                    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  >
+                    <input
+                      type="radio"
+                      className="mt-1"
+                      name="cancel_reason"
+                      value={r.key}
+                      checked={reasonKey === r.key}
+                      onChange={() => setReasonKey(r.key)}
+                    />
+                    <span className="text-sm text-gray-800">{r.label}</span>
+                  </label>
+                ))}
+
+                {reasonKey === 'other' && (
+                  <textarea
+                    className="mt-1 w-full input min-h-[96px]"
+                    placeholder="Nhập lý do khác…"
+                    value={reasonOther}
+                    onChange={(e) => setReasonOther(e.target.value)}
+                  />
+                )}
+              </div>
+
+              <div className="px-5 pb-5 flex items-center justify-end gap-3">
+                <button
+                  className="btn bg-gray-100 hover:bg-gray-200"
+                  onClick={() => setCancelOpen(false)}
+                  disabled={submitting}
+                >
+                  Bỏ qua
+                </button>
+                <button
+                  className="btn bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60"
+                  onClick={submitCancel}
+                  disabled={submitting || !canSubmitCancel()}
+                >
+                  {submitting
+                    ? 'Đang gửi…'
+                    : (cancelIsPending ? 'Xác nhận huỷ' : 'Gửi yêu cầu')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

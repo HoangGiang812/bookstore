@@ -1,4 +1,4 @@
-// src/view/services/api.js
+// src/services/api.js
 const ORIGIN = (import.meta.env.VITE_API_URL || "http://localhost:4000").replace(/\/$/, "");
 const BASE = `${ORIGIN}/api`;
 const stripApiPrefix = (p) => (p.startsWith("/api/") ? p.slice(4) : p);
@@ -59,6 +59,26 @@ function setTokens(next) {
     else localStorage.removeItem("auth_tokens");
   } catch {}
 }
+
+// ✅ Xoá sạch mọi dấu vết đăng nhập (tokens + user) để UI thoát hẳn
+function clearAllAuth() {
+  try { localStorage.removeItem("tokens"); } catch {}
+  try { localStorage.removeItem("auth"); } catch {}
+  try { localStorage.removeItem("auth_tokens"); } catch {}
+
+  try {
+    const NS = "bookstore_data_v1";
+    const wrap = JSON.parse(localStorage.getItem(NS) || "{}");
+    if (wrap && typeof wrap === "object") {
+      delete wrap.tokens;
+      delete wrap.current_user; // nhiều nơi đang đọc khóa này để hiển thị user
+      const empty = !wrap || !Object.keys(wrap).length;
+      if (empty) localStorage.removeItem(NS);
+      else localStorage.setItem(NS, JSON.stringify(wrap));
+    }
+  } catch {}
+}
+
 function withParams(url, params) {
   if (!params) return url;
   const usp =
@@ -90,6 +110,7 @@ async function rawPost(path, body) {
   if (!res.ok) throw new Error(data?.message || data?.error || `HTTP ${res.status}`);
   return data;
 }
+
 async function request(
   path,
   { method = "GET", headers = {}, body, params, _retried } = {}
@@ -113,7 +134,7 @@ async function request(
   const opts = { method, headers: h };
   if (body != null) opts.body = isFormData ? body : JSON.stringify(body);
 
-  console.log("API REQUEST:", method, url, params || "", body || "");
+  // console.log("API REQUEST:", method, url, params || "", body || "");
 
   const res = await fetch(url, opts);
   const ct = res.headers.get("content-type") || "";
@@ -133,17 +154,22 @@ async function request(
       setTokens(next);
       return await request(path, { method, headers, body, params, _retried: true });
     } catch {
+      // ✅ refresh thất bại -> xoá sạch để UI không còn "nhìn như còn đăng nhập"
       setTokens(null);
+      clearAllAuth();
+      // có thể ném lỗi ngay để caller xử lý điều hướng về trang login
+      throw new Error("Unauthorized");
     }
   }
 
   if (!res.ok) {
     const msg = data?.message || data?.error || `HTTP ${res.status}`;
-    console.error("API ERROR:", method, url, msg, data);
+    // console.error("API ERROR:", method, url, msg, data);
     throw new Error(msg);
   }
   return data;
 }
+
 export const api = {
   get: (p, o = {}) => request(p, { ...o, method: "GET" }),
   post: (p, b, o = {}) => request(p, { ...o, method: "POST", body: b }),

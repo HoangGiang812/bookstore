@@ -178,7 +178,8 @@ export async function refresh(req, res) {
 
   let payload;
   try {
-    payload = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    // ✅ Dùng REFRESH secret để verify refresh token
+    payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
   } catch {
     return res.status(401).json({ message: "Invalid token" });
   }
@@ -204,7 +205,8 @@ export async function logout(req, res) {
 
   let payload;
   try {
-    payload = jwt.verify(refreshToken, process.env.JWT_SECRET);
+    // ✅ Dùng REFRESH secret để verify refresh token
+    payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
   } catch {
     return res.status(401).json({ message: "Invalid token" });
   }
