@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Book, Eye, EyeOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/useAuth';
+import { useUI } from '../../store/useUI';
 
 export default function Login() {
   const [isLogin, setIsLogin] = useState(true);
@@ -11,21 +12,41 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   const { login, register } = useAuth();
+  const { showToast } = useUI();
   const nav = useNavigate();
 
   const submit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
+
     try {
       if (isLogin) {
         await login({ email: f.email, password: f.password });
+        showToast({
+          type: 'success',
+          title: 'Đăng nhập thành công',
+          msg: `Chào mừng ${f.email}!`,
+          duration: 2200,
+        });
         nav('/');
       } else {
         await register({ name: f.name, email: f.email, password: f.password });
+        showToast({
+          type: 'success',
+          title: 'Tạo tài khoản thành công',
+          msg: 'Bạn đã có thể bắt đầu mua sắm.',
+          duration: 2200,
+        });
         nav('/');
       }
     } catch (err) {
-      alert(err?.message || 'Có lỗi xảy ra, vui lòng thử lại.');
+      showToast({
+        type: 'error',
+        title: isLogin ? 'Đăng nhập thất bại' : 'Đăng ký thất bại',
+        msg: err?.message || 'Có lỗi xảy ra, vui lòng thử lại.',
+        duration: 3200,
+      });
     } finally {
       setLoading(false);
     }

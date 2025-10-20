@@ -9,13 +9,16 @@ import RefundBox from './RefundBox';
 const fmtMoney = (n) =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(n || 0));
 
-// badge màu theo trạng thái
+// ---- Chuẩn hoá trạng thái để tránh trùng nhãn ----
+const normalizeStatus = (s) =>
+  ({ canceled: 'cancelled', shipped: 'shipping', delivered: 'completed' }[s] || s);
+
+// badge màu theo trạng thái (sau khi đã chuẩn hoá)
 const badge = (s) => ({
   completed: 'text-green-600 bg-green-100',
   processing: 'text-blue-600 bg-blue-100',
   shipping: 'text-purple-600 bg-purple-100',
   pending: 'text-yellow-600 bg-yellow-100',
-  canceled: 'text-red-600 bg-red-100',
   cancelled: 'text-red-600 bg-red-100',
   refunded: 'text-orange-600 bg-orange-100',
   paid: 'text-green-600 bg-green-100',
@@ -23,14 +26,13 @@ const badge = (s) => ({
   cancel_requested: 'text-amber-700 bg-amber-100',
 }[s] || 'text-gray-600 bg-gray-100');
 
-// dịch nhãn
+// dịch nhãn (sau khi đã chuẩn hoá)
 const t = (s) =>
   ({
     completed: 'Hoàn thành',
     processing: 'Đang xử lý',
     shipping: 'Đang giao',
     pending: 'Chờ xử lý',
-    canceled: 'Đã huỷ',
     cancelled: 'Đã huỷ',
     refunded: 'Đã hoàn',
     paid: 'Đã thanh toán',
@@ -173,11 +175,18 @@ export default function Orders() {
     }
   };
 
-  // ----- Render -----
+  // ----- Tóm tắt theo trạng thái (đÃ CHUẨN HOÁ) -----
   const statusCounts = orders.reduce((acc, o) => {
-    acc[o.status] = (acc[o.status] || 0) + 1;
+    const st = normalizeStatus(o.status);
+    acc[st] = (acc[st] || 0) + 1;
     return acc;
   }, {});
+
+  // Thứ tự hiển thị ô tóm tắt
+  const SUMMARY_KEYS = ['cancel_requested', 'processing', 'shipping', 'completed', 'cancelled', 'pending', 'refunded'];
+  const summaryEntries = SUMMARY_KEYS
+    .map((k) => [k, statusCounts[k] || 0])
+    .filter(([, c]) => c > 0);
 
   return (
     <div className="space-y-6">
@@ -186,7 +195,7 @@ export default function Orders() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-        {Object.entries(statusCounts).map(([s, c]) => (
+        {summaryEntries.map(([s, c]) => (
           <div key={s} className="bg-white rounded-lg border p-4 text-center">
             <div className={`inline-flex p-2 rounded-full mb-2 ${badge(s)}`} />
             <p className="text-xl font-bold text-gray-900">{c}</p>
@@ -213,6 +222,10 @@ export default function Orders() {
               {orders.map((o) => {
                 const total = o.total?.grand ?? o.total ?? 0;
                 const payStatus = o.payment?.status || o.paymentStatus || (o.paid ? 'paid' : 'unpaid');
+
+                // dùng trạng thái đã chuẩn hoá trong UI
+                const st = normalizeStatus(o.status);
+
                 return (
                   <tr key={o._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
@@ -237,7 +250,7 @@ export default function Orders() {
                     </td>
                     <td className="px-6 py-4 font-medium">{fmtMoney(total)}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs rounded-full ${badge(o.status)}`}>{t(o.status)}</span>
+                      <span className={`px-2 py-1 text-xs rounded-full ${badge(st)}`}>{t(st)}</span>
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 text-xs rounded-full ${badge(payStatus)}`}>{t(payStatus)}</span>
@@ -258,15 +271,15 @@ export default function Orders() {
                         {/* bước tiến trình nhanh */}
                         <button
                           className="text-green-600 hover:text-green-800"
-                          onClick={() => updateOrderStatus(o._id, nextStatus(o.status))}
+                          onClick={() => updateOrderStatus(o._id, nextStatus(st))}
                           title="Chuyển trạng thái tiếp theo"
-                          disabled={['cancel_requested', 'cancelled', 'canceled'].includes(o.status)}
+                          disabled={['cancel_requested', 'cancelled'].includes(st)}
                         >
                           <RefreshCw className="w-4 h-4" />
                         </button>
 
                         {/* Huỷ ngay (đặt cờ), ẩn nếu đã huỷ */}
-                        {!['canceled','cancelled'].includes(o.status) && (
+                        {st !== 'cancelled' && (
                           <button
                             className="text-red-600 hover:text-red-800"
                             onClick={() => updateOrderStatus(o._id, 'canceled')}
@@ -277,7 +290,7 @@ export default function Orders() {
                         )}
 
                         {/* >>> Duyệt/Từ chối yêu cầu huỷ */}
-                        {o.status === 'cancel_requested' && (
+                        {st === 'cancel_requested' && (
                           <>
                             <button
                               className="px-3 py-1 rounded-md bg-red-600 text-white hover:bg-red-700"
