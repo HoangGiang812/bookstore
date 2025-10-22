@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '@/services/api';
 import { Plus, Edit, Trash2, PauseCircle, PlayCircle, X } from 'lucide-react';
-import CouponForm from './CouponForm'; // <-- Import form mới
+import CouponForm from '../../admin/conpons/CouponForm'; // <-- Import form mới
 
 // Hàm helper để format ngày
 const formatDate = (dateString) => {

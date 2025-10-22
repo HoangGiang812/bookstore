@@ -151,7 +151,7 @@ export default function CouponForm({ couponToEdit, onSuccess, onCancel }) {
         {/* Giá trị */}
         <div>
           <label htmlFor="value" className="block text-sm font-medium text-gray-700">
-            Giá trị (ví dụ: 10 hoặc 50000)
+            Giá trị (ví dụ: 10% hoặc 50000)
           </label>
           <input
             type="number"
