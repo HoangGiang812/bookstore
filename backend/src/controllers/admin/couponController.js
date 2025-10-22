@@ -101,7 +101,7 @@ export async function pauseCoupon(req, res) {
     const q = isObjectId(key) ? { _id: key } : { code: normCode(key) };
     const c = await Coupon.findOneAndUpdate(
       q,
-      { active: false, pausedAt: new Date() },
+      { isActive: false, pausedAt: new Date() },
       { new: true }
     ).lean();
     if (!c) return res.status(404).json({ message: 'coupon_not_found' });
@@ -118,7 +118,7 @@ export async function resumeCoupon(req, res) {
     const q = isObjectId(key) ? { _id: key } : { code: normCode(key) };
     const c = await Coupon.findOneAndUpdate(
       q,
-      { active: true, pausedAt: null },
+      { isActive: true, pausedAt: null },
       { new: true }
     ).lean();
     if (!c) return res.status(404).json({ message: 'coupon_not_found' });

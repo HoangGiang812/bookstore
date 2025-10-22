@@ -60,7 +60,7 @@ function eligibleSubtotal(items, coupon) {
  * @returns {{valid:boolean, discount:number, reason?:string, coupon?:any}}
  */
 export async function applyCoupon(ctx = {}) {
-  const code = String(ctx.code || '').trim().toUpperCase();
+  const code = String(ctx.code || '').trim();
   if (!code) return { valid: false, discount: 0, reason: 'EMPTY_CODE' };
 
   const now = new Date();
@@ -111,7 +111,7 @@ export async function applyCoupon(ctx = {}) {
   let discount = 0;
   if (c.type === 'percent') {
     discount = Math.floor(eligibleSub * (Number(c.value || 0) / 100));
-  } else if (c.type === 'fixed') {
+  } else if (c.type === 'amount') {
     discount = toInt(c.value);
   } else {
     return { valid: false, discount: 0, reason: 'UNSUPPORTED_TYPE' };
