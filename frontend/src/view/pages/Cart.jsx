@@ -1,7 +1,7 @@
 // src/view/pages/Cart.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { Minus, Plus, Trash2, CheckSquare, Square, XCircle, CheckCircle } from 'lucide-react'; // Thêm icon
+import { Minus, Plus, Trash2, CheckSquare, Square, XCircle, CheckCircle } from 'lucide-react';
 
 import { useCart } from '../../store/useCart';
 import { useAuth } from '../../store/useAuth';
@@ -15,37 +15,13 @@ import {
   clearBuyNow,
 } from '../../services/cart';
 import { create as createOrder } from '../../services/orders';
+import api from '../../services/api';
 
 const toVND = (n) =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
     .format(Number(n || 0));
 const idOf = (i) => i.id || i.bookId;
 
-// (Giữ nguyên các hàm helper apiGet, apiPost, normalizeAddr, useAddresses, AddressModal... 
-// Mình sẽ ẩn đi cho gọn, bạn chỉ cần copy cả file này đè lên là được)
-
-async function apiGet(url) {
-  const r = await fetch(url, { credentials: 'include' });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-
-async function apiPost(url, body) {
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(body),
-  });
-
-  const responseJson = await r.json();
-
-  if (!r.ok) {
-    throw new Error(responseJson.message || `Lỗi ${r.status}`);
-  }
-
-  return responseJson;
-}
 function normalizeAddr(raw) {
   if (!raw) return null;
   const id = String(raw._id || raw.id || Date.now() + Math.random());
@@ -105,7 +81,7 @@ function useAddresses(user) {
         if (!user) { if (alive) setList([]); return; }
 
         try {
-          let data = await apiGet('/api/me/addresses');
+          let data = await api.get('/me/addresses');
           data = Array.isArray(data) ? data : (data?.items || []);
           const mapped = (data || []).map(a => {
             const n = normalizeAddr(a);
@@ -361,7 +337,7 @@ export default function CartPage() {
 
     try {
       // Gọi API mới tạo ở Backend (ĐÃ SỬA URL)
-      const res = await apiPost('/api/coupon/validate', {
+      const res = await api.post('/api/coupon/validate', {
         code: couponInput,
         items: itemsPayload,
       });
@@ -416,7 +392,7 @@ export default function CartPage() {
 
       let newId = '';
       try {
-        const res = await apiPost('/api/me/addresses', f);
+        const res = await api.post('/me/addresses', f);
         newId = String(res?._id || res?.id || '');
       } catch {
         const cur = readLocal(user).map(normalizeAddr).filter(Boolean);
@@ -674,18 +650,6 @@ export default function CartPage() {
               ))}
             </select>
 
-            {!addresses.length && !loadingAddrs && (
-              <div className="text-xs text-gray-600 mt-2">
-                Chưa có địa chỉ.
-                <button
-                  type="button"
-                  onClick={() => setOpenAddrModal(true)}
-                  className="ml-2 px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                >
-                  + Thêm địa chỉ mới
-                </button>
-              </div>
-            )}
           </div>
 
           <div>

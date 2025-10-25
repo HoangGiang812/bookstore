@@ -200,19 +200,11 @@ export async function refresh(req, res) {
 }
 
 export async function logout(req, res) {
-  const { refreshToken } = req.body || {};
-  if (!refreshToken) return res.status(400).json({ message: "Missing refreshToken" });
-
-  let payload;
+  const userId = req.user._id;
   try {
-    // ✅ Dùng REFRESH secret để verify refresh token
-    payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-  } catch {
-    return res.status(401).json({ message: "Invalid token" });
+    await Session.deleteOne({ userId: userId });
+  } catch (dbError) {
+    console.error("Lỗi khi xóa session khỏi DB:", dbError);
   }
-  if (payload.sub !== String(req.user._id))
-    return res.status(403).json({ message: "Forbidden" });
-
-  await Session.deleteOne({ userId: payload.sub });
-  res.json({ message: "Đã đăng xuất" });
+  res.status(200).json({ message: "Đã đăng xuất thành công" });
 }

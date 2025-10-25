@@ -16,6 +16,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState, useMemo, useRef } from "react";
 import { searchSuggestions } from "../../services/catalog";
 import { useAuth } from "../../store/useAuth";
+import { useWishlist } from "../../store/useWishlist";
 import CategoryMegaMenu from "../components/CategoryMenu";
 
 /* ================== utils ================== */
@@ -56,6 +57,8 @@ export default function Header() {
   const anchorRef = useRef(null);
   const inputRef = useRef(null);
   const [count, setCount] = useState(readCartCount(user?.id));
+  const { wishlist, fetchWishlist, clearWishlist } = useWishlist();
+  const wishlistCount = wishlist.length;
 
   // nhớ loại gợi ý đã chọn gần nhất
   const [lastPick, setLastPick] = useState(null);
@@ -210,6 +213,13 @@ export default function Header() {
     }, 200);
     return () => clearTimeout(t);
   }, [q]);
+
+  useEffect(() => {
+    clearWishlist();
+    if (user) {
+      fetchWishlist();
+    }
+  }, [user, fetchWishlist, clearWishlist]);
 
   // tô đậm màu tím/ xanh tím cho phần khớp
   const highlight = (label) => {
@@ -367,8 +377,14 @@ export default function Header() {
         </form>
 
         <nav className="flex items-center gap-3">
-          <Link to="/wishlist" className="p-2 hover:bg-gray-100 rounded-lg">
-            <Heart className="w-6 h-6" />
+          <Link to="/wishlist" className="relative p-2 hover:bg-gray-100 rounded-lg"> {/* */}
+            <Heart className="w-6 h-6" /> {/* */}
+            {/* THÊM BADGE COUNT */}
+            {wishlistCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                {wishlistCount > 99 ? "99+" : wishlistCount}
+              </span>
+            )}
           </Link>
 
         <Link
@@ -437,7 +453,11 @@ export default function Header() {
                     <Link to="/account/addresses" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Sổ địa chỉ</Link>
                     <Link to="/orders" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Đơn hàng của tôi</Link>
                     <button
-                      onClick={() => { logoutAll(); nav("/"); }}
+                      onClick={async () => {
+                        await logoutAll(); // 1. Đợi đăng xuất xong
+                        clearWishlist();   // 2. Dọn dẹp wishlist
+                        nav("/");          // 3. Điều hướng về trang chủ
+                      }}
                       className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 text-rose-600"
                     >
                       Đăng xuất
