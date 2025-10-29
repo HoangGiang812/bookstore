@@ -1,7 +1,7 @@
 // src/view/pages/Cart.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { Minus, Plus, Trash2, CheckSquare, Square, XCircle, CheckCircle } from 'lucide-react'; // Thêm icon
+import { Minus, Plus, Trash2, CheckSquare, Square, XCircle, CheckCircle } from 'lucide-react';
 
 import { useCart } from '../../store/useCart';
 import { useAuth } from '../../store/useAuth';
@@ -15,37 +15,13 @@ import {
   clearBuyNow,
 } from '../../services/cart';
 import { create as createOrder } from '../../services/orders';
+import api from '../../services/api';
 
 const toVND = (n) =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
     .format(Number(n || 0));
 const idOf = (i) => i.id || i.bookId;
 
-// (Giữ nguyên các hàm helper apiGet, apiPost, normalizeAddr, useAddresses, AddressModal... 
-// Mình sẽ ẩn đi cho gọn, bạn chỉ cần copy cả file này đè lên là được)
-
-async function apiGet(url) {
-  const r = await fetch(url, { credentials: 'include' });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-
-async function apiPost(url, body) {
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify(body),
-  });
-
-  const responseJson = await r.json();
-
-  if (!r.ok) {
-    throw new Error(responseJson.message || `Lỗi ${r.status}`);
-  }
-
-  return responseJson;
-}
 function normalizeAddr(raw) {
   if (!raw) return null;
   const id = String(raw._id || raw.id || Date.now() + Math.random());
@@ -105,7 +81,7 @@ function useAddresses(user) {
         if (!user) { if (alive) setList([]); return; }
 
         try {
-          let data = await apiGet('/api/me/addresses');
+          let data = await api.get('/me/addresses');
           data = Array.isArray(data) ? data : (data?.items || []);
           const mapped = (data || []).map(a => {
             const n = normalizeAddr(a);
@@ -152,7 +128,7 @@ function AddressModal({ open, onClose, onSave, user }) {
   });
 
   const districts = DISTRICTS[f.province] || [];
-  const wards = (WARDS[f.province] && WARDS[f.province][f.district]) || [];
+  const wards = (WARDS[f.province] && WARDS[f.district]) || [];
 
   useEffect(() => {
     if (open) {
@@ -254,8 +230,8 @@ export default function CartPage() {
   const [sp] = useSearchParams();
 
   // ===== THAY ĐỔI 1: State cho coupon =====
-  const [couponInput, setCouponInput] = useState(''); // State cho ô input
-  const [couponResult, setCouponResult] = useState({ // State cho kết quả
+  const [couponInput, setCouponInput] = useState('');
+  const [couponResult, setCouponResult] = useState({
     valid: false,
     discount: 0,
     code: '',
@@ -265,7 +241,7 @@ export default function CartPage() {
   // ======================================
 
   const [addressId, setAddressId] = useState('');
-  const [payMethod, setPayMethod] = useState('cod');
+  const [payMethod, setPayMethod] = useState('cod'); // 'cod' | 'bank'
   const [loading, setLoading] = useState(false);
   const [errMsg, setErrMsg] = useState('');
   const [shipFee, setShipFee] = useState(0);
@@ -328,7 +304,6 @@ export default function CartPage() {
         const selAddr = addresses.find(a => String(a.id) === String(addressId)) || null;
         const province = getProvince(selAddr);
         if (!province) { if (alive) setShipFee(fallbackShippingFee(subtotalSelected)); return; }
-        // Cập nhật: tính phí ship dựa trên giá TRƯỚC khi giảm coupon
         const fee = await shippingFeeFor(province, subtotalSelected);
         if (alive) setShipFee(Number(fee || 0));
       } catch {
@@ -350,18 +325,14 @@ export default function CartPage() {
     }
 
     setCouponResult((prev) => ({ ...prev, loading: true, message: '' }));
-    
-    // Chuẩn bị payload items
     const itemsPayload = selectedItems.map((i) => ({
       bookId: i.id || i.bookId,
       qty: Math.max(1, Number(i.quantity || 1)),
       price: Number(i.price || 0),
-      // categoryId sẽ được backend tìm
     }));
 
     try {
-      // Gọi API mới tạo ở Backend (ĐÃ SỬA URL)
-      const res = await apiPost('/api/coupon/validate', {
+      const res = await api.post('/api/coupon/validate', {
         code: couponInput,
         items: itemsPayload,
       });
@@ -370,16 +341,17 @@ export default function CartPage() {
         valid: true,
         discount: res.discount,
         code: res.code,
-        message: res.message,
+        message: res.message || 'Áp dụng mã giảm giá thành công.',
         loading: false,
       });
 
     } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Mã không hợp lệ hoặc có lỗi.';
       setCouponResult({
         valid: false,
         discount: 0,
         code: couponInput,
-        message: e.message || 'Mã không hợp lệ hoặc có lỗi.',
+        message: msg,
         loading: false,
       });
     }
@@ -403,6 +375,7 @@ export default function CartPage() {
 
   const parseErrorMessage = (e) => {
     if (!e) return 'Có lỗi xảy ra';
+    if (e?.response?.data?.message) return e.response.data.message;
     try { const j = JSON.parse(e.message); return j?.message || e.message; }
     catch { return e.message || 'Có lỗi xảy ra'; }
   };
@@ -416,7 +389,7 @@ export default function CartPage() {
 
       let newId = '';
       try {
-        const res = await apiPost('/api/me/addresses', f);
+        const res = await api.post('/me/addresses', f);
         newId = String(res?._id || res?.id || '');
       } catch {
         const cur = readLocal(user).map(normalizeAddr).filter(Boolean);
@@ -436,6 +409,24 @@ export default function CartPage() {
       setOpenAddrModal(false);
     } catch {
       alert('Lưu địa chỉ thất bại');
+    }
+  }
+
+  // ===== THÊM: Redirect theo phương thức thanh toán (bank | cod) =====
+  async function handlePostCreateRedirect(order, method) {
+    const oid = order?._id || order?.id;
+    const code = order?.code || '';
+    if (!oid) return nav('/account/orders');
+
+    try {
+      if (method === 'bank') {
+        nav(`/payment-bank?orderId=${encodeURIComponent(oid)}&code=${encodeURIComponent(code)}`);
+        return;
+      }
+      // COD
+      nav('/account/orders');
+    } catch {
+      nav(`/payment-failed?code=${encodeURIComponent(code)}`);
     }
   }
 
@@ -471,22 +462,21 @@ export default function CartPage() {
       items,
       shippingAddress,
       payment: { method: payMethod },
-      // ===== THAY ĐỔI 3: Gửi mã đã được xác thực =====
       couponCode: couponResult.valid ? couponResult.code : undefined,
-      // ============================================
     };
 
     try {
       setLoading(true);
       const order = await createOrder(payload);
 
+      // Dọn giỏ: chỉ giữ lại món chưa mua
       const bought = new Set(items.map((i) => String(i.bookId)));
       const remain = cart.items.filter((i) => !bought.has(String(idOf(i))));
       cart.clear();
       for (const i of remain) cart.add(i, Number(i.quantity || 1));
       setSelected(new Set());
       setBuyOnly(false);
-      
+
       // Reset coupon
       setCouponResult({ valid: false, discount: 0, code: '', message: '', loading: false });
       setCouponInput('');
@@ -494,19 +484,17 @@ export default function CartPage() {
       showToast?.({
         type: 'success',
         title: 'Đặt hàng thành công 🎉',
-        message: 'Chúng tôi đã gửi xác nhận vào email của bạn.',
-        duration: 2600,
+        message: payMethod === 'cod'
+          ? 'Đơn hàng đã được tạo. Vui lòng theo dõi trạng thái trong mục Đơn hàng của tôi.'
+          : 'Đơn hàng đã được tạo. Đang mở trang chuyển khoản…',
+        duration: 2400,
       });
 
-      setTimeout(() => {
-        const code = order?.code || '';
-        nav(`/order-success?code=${encodeURIComponent(code)}`);
-      }, 800);
+      await handlePostCreateRedirect(order, payMethod);
     } catch (e) {
       if (String(e?.message || '').toLowerCase().includes('unauthorized')) return nav('/login?next=/cart');
-      // Hiển thị lỗi coupon nếu backend trả về
-      if (String(e?.message || '').toLowerCase().includes('coupon')) {
-        setCouponResult(prev => ({ ...prev, valid: false, message: e.message }));
+      if (e?.response?.data?.message?.toLowerCase?.().includes('coupon')) {
+        setCouponResult(prev => ({ ...prev, valid: false, message: e.response.data.message }));
       }
       setErrMsg(parseErrorMessage(e));
     } finally { setLoading(false); }
@@ -530,7 +518,6 @@ export default function CartPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 card p-4">
-          {/* ... (Phần hiển thị giỏ hàng giữ nguyên) ... */}
           {cart.items.length === 0 ? (
             <div className="text-gray-600">
               Giỏ hàng trống.{` `}
@@ -611,8 +598,7 @@ export default function CartPage() {
         </div>
 
         <aside className="card p-4 space-y-4">
-          
-          {/* ===== THAY ĐỔI 5: Cập nhật khối Mã giảm giá ===== */}
+          {/* Mã giảm giá */}
           <div>
             <label className="block text-sm font-medium mb-2">Mã giảm giá</label>
             <div className="flex gap-2">
@@ -631,8 +617,6 @@ export default function CartPage() {
                 {couponResult.loading ? 'Đang...' : 'Áp dụng'}
               </button>
             </div>
-            
-            {/* Hiển thị thông báo kết quả */}
             {couponResult.message && (
               <div 
                 className={`mt-2 text-xs inline-flex items-center gap-1 ${
@@ -644,8 +628,6 @@ export default function CartPage() {
               </div>
             )}
           </div>
-          {/* ============================================== */}
-
 
           <div>
             <div className="flex items-center justify-between">
@@ -673,56 +655,40 @@ export default function CartPage() {
                 </option>
               ))}
             </select>
-
-            {!addresses.length && !loadingAddrs && (
-              <div className="text-xs text-gray-600 mt-2">
-                Chưa có địa chỉ.
-                <button
-                  type="button"
-                  onClick={() => setOpenAddrModal(true)}
-                  className="ml-2 px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white font-semibold"
-                >
-                  + Thêm địa chỉ mới
-                </button>
-              </div>
-            )}
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-2">Thanh toán</label>
-            <select className="input w-full" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+            <select
+              className="input w-full"
+              value={payMethod}
+              onChange={(e) => setPayMethod(e.target.value)}
+            >
               <option value="cod">Thanh toán khi nhận hàng (COD)</option>
+              <option value="bank">Chuyển khoản ngân hàng</option>
             </select>
           </div>
 
-          {/* ===== THAY ĐỔI 6: Cập nhật khối tính tiền ===== */}
+          {/* Tính tiền */}
           <div className="text-sm space-y-1 border-t pt-3">
             <div className="flex justify-between"><span>Tổng giỏ (tạm tính)</span><b>{toVND(subtotalAll)}</b></div>
             <div className="flex justify-between mt-3"><span>Đã chọn (tạm tính)</span><b>{toVND(subtotalSelected)}</b></div>
-            
-            {/* Hiển thị giảm giá nếu có */}
             {couponResult.discount > 0 && (
               <div className="flex justify-between text-green-600">
                 <span>Giảm giá ({couponResult.code})</span>
                 <b>- {toVND(couponResult.discount)}</b>
               </div>
             )}
-            
             <div className="flex justify-between"><span>Phí vận chuyển (ước tính)</span><b>{estimating ? 'Đang tính…' : toVND(shipFee)}</b></div>
-            
             <div className="flex justify-between text-lg pt-2">
               <span>Tổng thanh toán (đã chọn)</span>
-              {/* Sử dụng grandTotal đã tính */}
               <b className="text-purple-600">{toVND(grandTotal)}</b>
             </div>
-            
             <div className="text-gray-500 text-xs">
               * Tổng cuối cùng sẽ do máy chủ xác nhận.<br/>
               * Ở chế độ <b>Mua ngay</b>, hệ thống chỉ thanh toán sản phẩm đã chọn.
             </div>
           </div>
-          {/* ============================================ */}
-
 
           <button onClick={onCheckout} disabled={loading || cart.items.length === 0} className="btn-primary w-full">
             {loading ? 'Đang đặt hàng…' : `Đặt hàng${buyOnly ? '' : selected.size === 0 ? ' (tất cả)' : ` (${selected.size})`}`}

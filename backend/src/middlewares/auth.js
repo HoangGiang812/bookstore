@@ -1,4 +1,4 @@
-// File: backend/src/middlewares/auth.js
+// backend/src/middlewares/auth.js
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User.js';
 
@@ -79,3 +79,6 @@ export function requireRoles(...allow) {
     next();
   };
 }
+
+/** ✅ Middleware chuyên dụng: yêu cầu quyền admin */
+export const requireAdmin = requireRoles('admin');

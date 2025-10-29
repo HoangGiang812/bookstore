@@ -1,6 +1,6 @@
 // backend/src/controllers/orderController.js
 import mongoose from 'mongoose';
-import Order from '../models/Order.js';               // ⬅️ sửa: default import
+import Order from '../models/Order.js'; // default import
 import { Setting } from '../models/Setting.js';
 import { Book } from '../models/Book.js';
 import { applyCoupon, markCouponUsed } from '../utils/coupon.js';
@@ -105,12 +105,11 @@ function toApiOrder(o) {
       }))
     : o.statusHistory || [];
 
-  // Đồng nhất tên trạng thái cho FE
+  // Giữ nguyên trạng thái thật (không map completed → delivered)
   const raw = String(o.status || 'pending').toLowerCase();
   const normalized =
     raw === 'canceled' ? 'cancelled' :
-    raw === 'completed' ? 'delivered' :
-    raw === 'shipping' ? 'shipped' : raw;
+    raw; // giữ nguyên: pending|processing|shipping|delivered|completed|cancel_requested|cancelled
 
   return {
     _id: o._id,
@@ -306,15 +305,17 @@ export async function myOrders(req, res) {
     const { limit, skip } = parsePaging(req);
     const filter = { userId: req.user._id };
     if (req.query.status) {
-      // nhận từ FE: pending/processing/shipped/delivered/cancelled
+      // FE gửi: pending/processing/shipped/delivered/cancelled
       const q = String(req.query.status).toLowerCase();
       const map = {
         shipped: 'shipping',
-        delivered: 'completed',
+        delivered: 'delivered',
         cancelled: 'cancelled',
         canceled: 'cancelled',
         pending: 'pending',
         processing: 'processing',
+        completed: 'completed',
+        'cancel_requested': 'cancel_requested',
       };
       filter.status = map[q] || q;
     }
@@ -371,7 +372,8 @@ export async function cancelMyOrder(req, res) {
     o.cancelRequest = {
       requested: true,
       reason: reason || '',
-      at: new Date(),
+      requestedAt: new Date(),        // ✅ dùng requestedAt đúng với schema
+      byUser: req.user?._id || undefined
     };
     pushHistory(o, 'cancel_requested', req.user?.email || req.user?.name || 'user', reason || 'User requested cancel');
     await o.save();
@@ -383,7 +385,28 @@ export async function cancelMyOrder(req, res) {
   }
 }
 
-/** ===== NEW: đánh dấu đã thanh toán & cập nhật tiến trình ===== */
+/** ===== NEW: KH xác nhận đã nhận hàng → completed ===== */
+export async function confirmReceived(req, res) {
+  try {
+    const o = await Order.findOne({ _id: req.params.id, userId: req.user._id });
+    if (!o) return res.status(404).json({ message: 'Not found' });
+    if (o.status !== 'delivered') {
+      return res.status(400).json({ message: 'Order is not in delivered status' });
+    }
+    if (o.cancelRequest?.requested) {
+      return res.status(400).json({ message: 'Order has pending cancellation' });
+    }
+    o.status = 'completed';
+    pushHistory(o, 'completed', req.user?.email || req.user?.name || 'user', 'Buyer confirmed received');
+    await o.save();
+    return res.json({ ok: 1, status: o.status });
+  } catch (e) {
+    console.error('confirmReceived error:', e);
+    return res.status(500).json({ message: 'confirm_failed' });
+  }
+}
+
+/** ===== (tuỳ chọn) KH tự xác nhận đã thanh toán (manual) ===== */
 export async function captureMyPayment(req, res) {
   try {
     const o = await Order.findOne({ _id: req.params.id, userId: req.user._id });
@@ -408,7 +431,7 @@ export async function captureMyPayment(req, res) {
   }
 }
 
-/** ===== NEW: trả về timeline theo dõi đơn ===== */
+/** ===== Trả về timeline theo dõi đơn ===== */
 export async function trackingMyOrder(req, res) {
   try {
     const o = await Order.findOne({ _id: req.params.id, userId: req.user._id }).lean();
@@ -419,14 +442,16 @@ export async function trackingMyOrder(req, res) {
 
     add('created', 'Đã tạo đơn', o.createdAt);
     if (o.paidAt || o.payment?.status === 'paid') add('paid', 'Đã thanh toán', o.paidAt || o.payment?.capturedAt);
-    if (o.processingAt || ['processing','shipping','completed','cancel_requested'].includes(o.status)) add('processing', 'Đang xử lý', o.processingAt);
+    if (o.processingAt || ['processing','shipping','delivered','completed','cancel_requested'].includes(o.status)) add('processing', 'Đang xử lý', o.processingAt);
     if (o.shippedAt || o.status === 'shipping') add('shipping', 'Đang vận chuyển', o.shippedAt);
-    if (o.deliveredAt || o.status === 'completed') add('delivered', 'Đã giao', o.deliveredAt);
-    if (o.status === 'cancel_requested') add('cancel_requested', 'Yêu cầu huỷ (chờ duyệt)', o.cancelRequest?.at);
+    if (o.deliveredAt || o.status === 'delivered' || o.status === 'completed') add('delivered', 'Đã giao', o.deliveredAt);
+    if (o.status === 'cancel_requested') add('cancel_requested', 'Yêu cầu huỷ (chờ duyệt)', o.cancelRequest?.requestedAt);
     if (o.cancelledAt || o.status === 'cancelled' || o.status === 'canceled') add('cancelled', 'Đã huỷ', o.cancelledAt);
+    if (o.status === 'completed') add('completed', 'Hoàn tất', o.updatedAt || o.deliveredAt);
 
+    // bổ sung từ history nếu timeline còn thiếu mốc
     if (Array.isArray(o.history)) {
-      const map = { create:'created', paid:'paid', process:'processing', ship:'shipping', deliver:'delivered', cancel:'cancelled', cancel_requested:'cancel_requested' };
+      const map = { create:'created', paid:'paid', process:'processing', ship:'shipping', deliver:'delivered', cancel:'cancelled', cancel_requested:'cancel_requested', completed:'completed' };
       o.history.forEach(h=>{
         const code = map[h.type] || h.type;
         if (!events.some(e=>e.code===code && e.at)) add(code, h.type, h.ts, h.note);

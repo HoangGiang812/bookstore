@@ -1,5 +1,5 @@
 // src/view/pages/BookDetail.jsx
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, Minus, Plus, ShoppingCart, Heart, Star } from "lucide-react";
 import { useCart } from "../../store/useCart";
@@ -7,6 +7,7 @@ import { useAuth } from "../../store/useAuth";
 import * as Catalog from "../../services/catalog";
 import * as CartSvc from "../../services/cart";
 import * as ReviewAPI from "../../services/reviews";
+import { useWishlist } from "../../store/useWishlist";
 
 /* --------- helpers --------- */
 const toVND = (n) =>
@@ -36,6 +37,8 @@ export default function BookDetail() {
   const nav = useNavigate();
   const cart = useCart();
   const { user } = useAuth();
+  const location = useLocation();
+  const { wishlist, toggleWishlist } = useWishlist();
 
   const [qty, setQty] = useState(1);
   const [book, setBook] = useState(null);
@@ -182,6 +185,12 @@ export default function BookDetail() {
     return () => { mounted = false; };
   }, [slug]);
 
+  const liked = useMemo(() => {
+    if (!book) return false;
+    const id = book._id || book.id;
+    return wishlist.some(item => (item._id || item.id) === id);
+  }, [wishlist, book]);
+
   const hasDiscount = book && book.originalPrice > book.price && book.originalPrice > 0;
 
   const stockPercent = useMemo(() => {
@@ -208,6 +217,22 @@ export default function BookDetail() {
       } else {
         alert(msg || "Không thể thêm vào giỏ");
       }
+    }
+  };
+
+  const toggleLike = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (user) {
+      // (Phải có book rồi mới cho bấm)
+      if (book) {
+        toggleWishlist(book);
+      }
+    } else {
+      // Nếu chưa đăng nhập, chuyển hướng sang trang login
+      // và lưu lại trang này để quay lại
+      nav('/login', { state: { from: location.pathname } }); 
     }
   };
 
@@ -362,8 +387,14 @@ export default function BookDetail() {
               Mua ngay
             </button>
 
-            <button className="inline-flex items-center gap-2 px-3 py-3 rounded-xl hover:bg-gray-100">
-              <Heart size={18} /> Yêu thích
+            <button 
+              onClick={toggleLike}
+              className={`inline-flex items-center gap-2 px-3 py-3 rounded-xl 
+                          ${liked ? 'bg-red-50 text-red-600' : 'hover:bg-gray-100'}`}
+              aria-label="Yêu thích"
+            >
+              <Heart size={18} fill={liked ? 'currentColor' : 'none'} /> 
+              {liked ? 'Đã thích' : 'Yêu thích'}
             </button>
           </div>
 

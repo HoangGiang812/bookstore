@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import * as Auth from '../services/auth'
 import { load, save } from '../services/storage'
+import { clearAllAuth } from '../services/api';
 
 export const useAuth = create((set,get)=>({
   user:   load('current_user', null),
@@ -40,10 +41,17 @@ export const useAuth = create((set,get)=>({
   async verify(email){ return Auth.verifyEmail(email) },
 
   async logoutAll(){
-    const u=get().user; if(!u) return
-    await Auth.logoutAll(u.id || u._id)
-    set({user:null,tokens:null})
-    save('current_user', null)
-    save('tokens', null)
+    const u=get().user; 
+    
+    if(u) {
+        try {
+            await Auth.logoutAll(u.id || u._id)
+        } catch (e) {
+            console.error("Lỗi khi gọi API logoutAll:", e);
+        }
+    }
+    
+    set({user:null,tokens:null});
+    clearAllAuth();
   }
 }))

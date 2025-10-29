@@ -26,29 +26,44 @@ const CancellationSchema = new Schema({
 }, { _id: false });
 
 const StatusHistorySchema = new Schema({
-  at:   { type: Date, default: Date.now },
-  by:   { type: String, default: 'system' }, // email / name / 'system'
-  type: { type: String, default: '' },       // create|paid|process|ship|deliver|cancel_requested|cancel|...
-  note: { type: String, default: '' },
+  at:     { type: Date, default: Date.now },
+  by:     { type: String, default: 'system' }, // email / name / 'system'
+  type:   { type: String, default: '' },       // create|paid|process|ship|deliver|cancel_requested|cancel|completed|...
+  note:   { type: String, default: '' },
   amount: Number
+}, { _id: false });
+
+/* ===== Item & Address ===== */
+const OrderItemSchema = new Schema({
+  bookId:     { type: Schema.Types.ObjectId, ref: 'Book', required: true, index: true },
+  title:      { type: String, default: '' },
+  image:      { type: String, default: '' },
+  price:      { type: Number, required: true },
+  qty:        { type: Number, required: true, min: 1 },
+  categoryId: { type: Schema.Types.ObjectId, ref: 'Category' }
+}, { _id: false });
+
+const AddressSchema = new Schema({
+  label:    String,
+  receiver: String,
+  phone:    String,
+  province: String,
+  district: String,
+  ward:     String,
+  detail:   String,
+  isDefault:Boolean
 }, { _id: false });
 
 /* ===== Main schema ===== */
 const OrderSchema = new Schema({
-  code:  { type: String, index: true },
+  code:  { type: String, index: true }, // mã đơn của bạn (có thể unique ở nơi khác)
   userId:{ type: Schema.Types.ObjectId, ref: 'User', index: true, required: true },
 
   idempotencyKey: { type: String, index: true },
 
-  items: [{
-    bookId: { type: Schema.Types.ObjectId, ref: 'Book', required: true, index: true },
-    title:  { type: String, default: '' },
-    image:  { type: String, default: '' },
-    price:  { type: Number, required: true },
-    qty:    { type: Number, required: true, min: 1 },
-    categoryId: { type: Schema.Types.ObjectId, ref: 'Category' }
-  }],
+  items:         { type: [OrderItemSchema], default: [] },
 
+  // Tổng tiền (bạn đã có cả 2 dạng: total + pricing → giữ nguyên để tương thích)
   subtotal:     { type: Number, default: 0 },
   shippingFee:  { type: Number, default: 0 },
   tax:          { type: Number, default: 0 },
@@ -57,7 +72,6 @@ const OrderSchema = new Schema({
     sub:   { type: Number, default: 0 },
     grand: { type: Number, default: 0 }
   },
-
   pricing: {
     subtotal:   { type: Number, default: 0 },
     shipping:   { type: Number, default: 0 }, // alias shippingFee
@@ -66,33 +80,30 @@ const OrderSchema = new Schema({
     grandTotal: { type: Number, default: 0 }
   },
 
-  shippingAddress: {
-    label: String,
-    receiver: String,
-    phone: String,
-    province: String,
-    district: String,
-    ward: String,
-    detail: String,
-    isDefault: Boolean
-  },
+  shippingAddress: { type: AddressSchema },
 
+  // Thanh toán
   payment: {
-    method:     { type: String, default: 'cod' },
-    status:     { type: String, default: 'unpaid' }, // unpaid|paid|refunded
-    capturedAt: Date,
-    refundTotal:{ type: Number, default: 0 }
+    method:     { type: String, default: 'cod' },      // cod|vnpay|momo|bank
+    status:     { type: String, default: 'unpaid' },   // unpaid|paid|refunded
+    provider:   { type: String },                      // vnpay|momo|bank
+    intentId:   { type: String },                      // TxnRef/orderId của cổng
+    capturedAt: { type: Date },
+    refundTotal:{ type: Number, default: 0 },
+    raw:        { type: Schema.Types.Mixed }           // log từ cổng (tùy chọn)
   },
 
   couponCode: { type: String, default: null },
 
+  // === Trạng thái vận hành (đã thêm 'delivered')
   status: {
     type: String,
-    enum: ['pending','processing','shipping','completed','cancel_requested','cancelled'],
+    enum: ['pending','processing','shipping','delivered','completed','cancel_requested','cancelled'],
     default: 'pending',
     index: true
   },
 
+  // Mốc thời gian
   placedAt:     Date,
   paidAt:       Date,
   processingAt: Date,
@@ -100,9 +111,17 @@ const OrderSchema = new Schema({
   deliveredAt:  Date,
   cancelledAt:  Date,
 
+  // Buyer protection: auto-complete sau N ngày nếu không khiếu nại
+  protection: {
+    windowDays: { type: Number, default: 3 },
+    expiresAt:  { type: Date }
+  },
+
+  // Huỷ/hoàn
   cancelRequest: { type: CancelRequestSchema, default: () => ({ requested: false }) },
   cancellation:  { type: CancellationSchema,  default: () => ({ approved: false }) },
 
+  // Lịch sử/audit
   history:       { type: [StatusHistorySchema], default: [] },
   statusHistory: { type: [StatusHistorySchema], default: [] },
 
@@ -119,6 +138,7 @@ const OrderSchema = new Schema({
 OrderSchema.index({ userId: 1, createdAt: -1 });
 OrderSchema.index({ code: 1 });
 OrderSchema.index({ status: 1, createdAt: -1 });
+OrderSchema.index({ 'payment.intentId': 1 }, { sparse: true });
 
 /* ===== Helpers ===== */
 OrderSchema.methods.pushStatus = function (type, by = 'system', note = '', amount) {
@@ -126,6 +146,6 @@ OrderSchema.methods.pushStatus = function (type, by = 'system', note = '', amoun
 };
 
 /* ===== Model & exports ===== */
-const Order = mongoose.model('Order', OrderSchema);
+const Order = mongoose.models.Order || mongoose.model('Order', OrderSchema);
 export default Order;   // default export
 export { Order };       // named export (để các file import { Order } chạy bình thường)

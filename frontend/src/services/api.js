@@ -4,7 +4,7 @@ const BASE = `${ORIGIN}/api`;
 const stripApiPrefix = (p) => (p.startsWith("/api/") ? p.slice(4) : p);
 
 // ---------------- Token helpers ----------------
-function getTokens() {
+export function getTokens() {
   try {
     const t = JSON.parse(localStorage.getItem("tokens") || "null");
     if (t?.accessToken) return t;
@@ -61,7 +61,7 @@ function setTokens(next) {
 }
 
 // ✅ Xoá sạch mọi dấu vết đăng nhập (tokens + user) để UI thoát hẳn
-function clearAllAuth() {
+export function clearAllAuth() {
   try { localStorage.removeItem("tokens"); } catch {}
   try { localStorage.removeItem("auth"); } catch {}
   try { localStorage.removeItem("auth_tokens"); } catch {}

@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useMemo } from "react";
 import { FiShoppingCart } from "react-icons/fi";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "../../store/useAuth";
+import { useWishlist } from "../../store/useWishlist";
 
 const FALLBACK_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(
   `<svg xmlns='http://www.w3.org/2000/svg' width='400' height='600'>
@@ -55,21 +57,32 @@ function flyToCart(fromEl, imageSrc) {
 /* ---------------------------------------------------- */
 
 export default function DealCard({ book = {}, onAdd, onBuy }) {
-  const [liked, setLiked] = useState(false);
+  const { user } = useAuth();
+  const { wishlist, toggleWishlist } = useWishlist();
+  const nav = useNavigate();
+  const location = useLocation();
+  const id = book.id || book._id;
+  const liked = useMemo(() => {
+    return wishlist.some(item => (item._id || item.id) === id);
+  }, [wishlist, id]);
 
   const price = Number(book.price ?? 0);
   const originalPrice = Number(book.originalPrice ?? 0);
   const hasDiscount = originalPrice > price && originalPrice > 0;
   const discount = hasDiscount ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
 
-  const id = book.id || book._id;
   const slug = book.slug;
   const bookUrl = slug ? `/books/${slug}` : id ? `/books/${id}` : "#";
 
   const toggleLike = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setLiked((s) => !s);
+
+    if (user) {
+      toggleWishlist(book);
+    } else {
+      nav('/login', { state: { from: location.pathname } }); 
+    }
   };
 
   // ✅ Thêm giỏ: không yêu cầu đăng nhập
