@@ -4,22 +4,26 @@ import { Star } from 'lucide-react';
 import { useAuth } from '../../store/useAuth';
 import * as Orders from '../../services/orders';
 import * as Reviews from '../../services/reviews';
-import * as Catalog from '../../services/catalog'; // ✅ dùng để lấy ảnh fallback
+import * as Catalog from '../../services/catalog'; // dùng để lấy ảnh fallback
 
 const money = (n) => (Number(n || 0)).toLocaleString('vi-VN') + 'đ';
 
 function StarsInput({ value, onChange }) {
   return (
     <div className="flex items-center gap-1">
-      {[1,2,3,4,5].map(n=>(
+      {[1, 2, 3, 4, 5].map((n) => (
         <button
           key={n}
           type="button"
-          onClick={()=>onChange?.(n)}
+          onClick={() => onChange?.(n)}
           aria-label={`${n} sao`}
           className="p-1"
         >
-          <Star className={`w-6 h-6 ${n<=value ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />
+          <Star
+            className={`w-6 h-6 ${
+              n <= value ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'
+            }`}
+          />
         </button>
       ))}
     </div>
@@ -27,9 +31,8 @@ function StarsInput({ value, onChange }) {
 }
 
 /**
- * Hook lấy ảnh fallback cho các order item KHÔNG có image/coverUrl (đơn cũ).
- * - Nhận mảng booksToReview
- * - Trả về map: { [bookId]: imageUrl }
+ * Lấy ảnh fallback cho các item KHÔNG có image/coverUrl.
+ * Trả về map: { [bookId]: imageUrl }
  */
 function useImageFallback(booksToReview) {
   const [imgMap, setImgMap] = useState({});
@@ -61,7 +64,7 @@ function useImageFallback(booksToReview) {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify((booksToReview||[]).map(b=>({ id:b.bookId, has:b.image?1:0 })))]);
+  }, [JSON.stringify((booksToReview || []).map((b) => ({ id: b.bookId, has: b.image ? 1 : 0 })))]);
 
   return imgMap;
 }
@@ -75,16 +78,16 @@ export default function AccountReviews() {
 
   // form state theo bookId
   const [forms, setForms] = useState({}); // { [bookId]: { rating, content, posting } }
-  const [posted, setPosted] = useState({}); // { [bookId]: true } -> đã gửi thành công
+  const [posted, setPosted] = useState({}); // { [bookId]: true }
 
   useEffect(() => {
     (async () => {
       if (!user) return;
       setLoading(true);
       try {
-        // Lấy các đơn "đã giao" (FE gửi delivered, BE map -> completed)
-        const res = await Orders.mine({ status: 'delivered', limit: 50 });
-        const items = Array.isArray(res?.items) ? res.items : (res?.data?.items || res || []);
+        // Lấy các đơn đã hoàn tất (completed)
+        const res = await Orders.mine({ status: 'completed', limit: 50 });
+        const items = Array.isArray(res?.items) ? res.items : res || [];
         setOrders(items || []);
       } finally {
         setLoading(false);
@@ -92,33 +95,66 @@ export default function AccountReviews() {
     })();
   }, [user]);
 
-  // Flatten các sách có thể đánh giá từ các đơn đã giao
+  /**
+   * ✅ GỘP CÁC SẢN PHẨM TRÙNG (cùng bookId) TỪ NHIỀU ĐƠN
+   * - Chỉ hiển thị 1 block/1 bookId
+   * - Gộp tổng số lượng đã mua
+   * - Lưu lại đơn gần nhất để hiển thị thông tin
+   */
   const booksToReview = useMemo(() => {
-    const out = [];
+    const map = new Map();
     for (const o of orders || []) {
-      for (const it of (o.items || [])) {
+      for (const it of o.items || []) {
         const bookId = it.bookId || it._id || it.id;
         if (!bookId) continue;
-        out.push({
+
+        const key = String(bookId);
+        const qty = it.qty ?? it.quantity ?? 1;
+
+        const current =
+          map.get(key) || {
+            bookId: key,
+            title: it.title || it.name || '',
+            image: it.image || it.coverUrl || '',
+            unitPrice: it.unitPrice ?? it.price ?? 0,
+            totalQty: 0,
+            lastOrderId: null,
+            lastOrderCode: '',
+            lastOrderAt: null,
+            orders: [],
+          };
+
+        current.totalQty += qty;
+        current.orders.push({
           orderId: o._id || o.id,
-          orderCode: o.code || (o._id || '').slice(-6),
+          orderCode: o.code || String(o._id || '').slice(-6),
           orderAt: o.createdAt,
-          bookId,
-          title: it.title || it.name,
-          image: it.image || it.coverUrl, // nếu BE đã có sẵn ảnh
-          unitPrice: it.unitPrice ?? it.price ?? 0,
-          qty: it.qty ?? it.quantity ?? 1,
+          qty,
         });
+
+        // Cập nhật đơn gần nhất
+        if (!current.lastOrderAt || new Date(o.createdAt) > new Date(current.lastOrderAt)) {
+          current.lastOrderAt = o.createdAt;
+          current.lastOrderCode = o.code || String(o._id || '').slice(-6);
+          current.lastOrderId = o._id || o.id;
+        }
+
+        // Nếu trước đó chưa có ảnh mà item này có ảnh -> cập nhật
+        if (!current.image && (it.image || it.coverUrl)) {
+          current.image = it.image || it.coverUrl;
+        }
+
+        map.set(key, current);
       }
     }
-    return out;
+    return Array.from(map.values());
   }, [orders]);
 
-  // ✅ Lấy ảnh fallback cho những item thiếu ảnh (đơn cũ)
+  // Ảnh fallback cho item thiếu ảnh
   const imgMap = useImageFallback(booksToReview);
 
   const onChangeForm = (bookId, patch) => {
-    setForms(f => ({ ...f, [bookId]: { rating: 5, content:'', ...f[bookId], ...patch } }));
+    setForms((f) => ({ ...f, [bookId]: { rating: 5, content: '', ...f[bookId], ...patch } }));
   };
 
   const submit = async (b) => {
@@ -129,11 +165,11 @@ export default function AccountReviews() {
       onChangeForm(b.bookId, { posting: true });
       await Reviews.postReview(b.bookId, {
         rating: fv.rating,
-        title: '', // không cần tiêu đề ở trang này
+        title: '',
         content: fv.content || '',
         photos: [],
       });
-      setPosted(p => ({ ...p, [b.bookId]: true }));
+      setPosted((p) => ({ ...p, [b.bookId]: true }));
     } catch (e) {
       alert(e?.message || 'Gửi đánh giá thất bại');
     } finally {
@@ -145,7 +181,9 @@ export default function AccountReviews() {
     <div className="bg-gray-50">
       {/* breadcrumb */}
       <div className="container px-4 pt-4 text-sm text-gray-500">
-        <Link to="/" className="hover:underline">Trang chủ</Link>
+        <Link to="/" className="hover:underline">
+          Trang chủ
+        </Link>
         <span className="mx-2">›</span>
         <span>Đánh giá sản phẩm</span>
       </div>
@@ -161,20 +199,31 @@ export default function AccountReviews() {
             </div>
           </div>
           <nav className="p-2 text-[15px]">
-            <Link to="/account/info" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
+            <Link
+              to="/account/info"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
+            >
               <span className="w-6 text-center">👤</span> Thông tin tài khoản
             </Link>
             <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-100 text-gray-900 font-medium">
               <span className="w-6 text-center">⭐</span> Đánh giá sản phẩm
             </div>
-            {/* ✅ THÊM: Nhận xét của tôi */}
-            <Link to="/account/comments" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
+            <Link
+              to="/account/comments"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
+            >
               <span className="w-6 text-center">💬</span> Nhận xét của tôi
             </Link>
-            <Link to="/account/addresses" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
+            <Link
+              to="/account/addresses"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
+            >
               <span className="w-6 text-center">📍</span> Sổ địa chỉ
             </Link>
-            <Link to="/orders" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
+            <Link
+              to="/orders"
+              className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
+            >
               <span className="w-6 text-center">🧾</span> Đơn hàng của tôi
             </Link>
           </nav>
@@ -195,39 +244,47 @@ export default function AccountReviews() {
                 const isPosted = !!posted[b.bookId];
                 const img = b.image || imgMap[b.bookId] || '/placeholder.jpg';
                 return (
-                  <div key={`${b.orderId}:${b.bookId}`} className="border rounded-lg p-4">
+                  <div key={b.bookId} className="border rounded-lg p-4">
                     <div className="flex items-start gap-4">
                       <img
                         src={img}
-                        onError={(e)=> { e.currentTarget.src='/placeholder.jpg'; }}
+                        onError={(e) => {
+                          e.currentTarget.src = '/placeholder.jpg';
+                        }}
                         alt={b.title}
                         className="w-20 h-28 object-contain border rounded bg-white"
                       />
                       <div className="flex-1">
                         <div className="font-semibold">{b.title}</div>
                         <div className="text-sm text-gray-500">
-                          Đơn #{String(b.orderCode).slice(-6)} • SL: {b.qty} • {money(b.unitPrice)}
+                          Đơn gần nhất #{String(b.lastOrderCode).slice(-6)} • Tổng SL đã mua: {b.totalQty}{' '}
+                          • {money(b.unitPrice)}
                         </div>
 
                         {isPosted ? (
-                          <div className="mt-3 text-green-600 font-medium">Bạn đã gửi đánh giá. Cảm ơn bạn!</div>
+                          <div className="mt-3 text-green-600 font-medium">
+                            Bạn đã gửi đánh giá cho sản phẩm này. Cảm ơn bạn!
+                          </div>
                         ) : (
                           <div className="mt-3 space-y-3">
                             <div>
                               <div className="text-sm text-gray-600 mb-1">Đánh giá</div>
-                              <StarsInput value={f.rating ?? 5} onChange={(v)=>onChangeForm(b.bookId, { rating: v })}/>
+                              <StarsInput
+                                value={f.rating ?? 5}
+                                onChange={(v) => onChangeForm(b.bookId, { rating: v })}
+                              />
                             </div>
                             <div>
                               <textarea
                                 className="input w-full min-h-[96px]"
                                 placeholder="Cảm nhận của bạn về sản phẩm…"
                                 value={f.content || ''}
-                                onChange={(e)=>onChangeForm(b.bookId, { content: e.target.value })}
+                                onChange={(e) => onChangeForm(b.bookId, { content: e.target.value })}
                               />
                             </div>
                             <div className="flex items-center justify-end">
                               <button
-                                onClick={()=>submit(b)}
+                                onClick={() => submit(b)}
                                 disabled={!!f.posting}
                                 className="btn-primary disabled:opacity-60"
                               >
@@ -238,6 +295,22 @@ export default function AccountReviews() {
                         )}
                       </div>
                     </div>
+
+                    {/* (Tuỳ chọn) liệt kê các lần mua trước cho sản phẩm này */}
+                    {b.orders?.length > 1 && (
+                      <details className="mt-3 text-sm text-gray-600">
+                        <summary className="cursor-pointer select-none">Xem các lần mua</summary>
+                        <ul className="mt-2 list-disc pl-5">
+                          {b.orders
+                            .sort((a, c) => new Date(c.orderAt) - new Date(a.orderAt))
+                            .map((o) => (
+                              <li key={`${o.orderId}:${o.qty}`}>
+                                Đơn #{String(o.orderCode).slice(-6)} • SL: {o.qty}
+                              </li>
+                            ))}
+                        </ul>
+                      </details>
+                    )}
                   </div>
                 );
               })}

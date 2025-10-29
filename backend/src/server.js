@@ -28,6 +28,7 @@ import postRoutes from './routes/posts.js';
 import publicRoutes from './routes/public.js';
 import couponRoutes from './routes/coupon.js';
 import paymentRoutes from './routes/payments.js';
+import adminOrdersRouter from './routes/admin/orders.js';
 const app = express();
 
 // CORS: chỉnh origin theo ENV nếu cần
@@ -69,6 +70,7 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/public', publicRoutes);
 app.use('/api/payments', paymentRoutes); 
 app.use('/api/coupon', couponRoutes);
+app.use('/api/admin/orders', adminOrdersRouter);
 app.use(reviewRoutes);
 
 // 404 & Error handlers

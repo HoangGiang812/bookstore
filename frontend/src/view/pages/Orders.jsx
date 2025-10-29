@@ -1,18 +1,26 @@
 // src/view/pages/Orders.jsx
-import { list, cancel, rma } from '../../services/orders';
-import { useAuth } from '../../store/useAuth';
-import { useUI } from '../../store/useUI';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import {
+  list as listOrders,
+  cancel as cancelOrder,
+  rma as requestRMA,
+  withdrawCancel,
+  confirmReceived,
+  // ✅ đã bỏ import tracking
+} from '../../services/orders';
+import { useAuth } from '../../store/useAuth';
+import { useUI } from '../../store/useUI';
 
 const TABS = [
-  { key: 'all',               label: 'Tất cả đơn' },
-  { key: 'pending',           label: 'Chờ thanh toán' },
-  { key: 'processing',        label: 'Đang xử lý' },
-  { key: 'shipping',          label: 'Đang vận chuyển' },
-  { key: 'completed',         label: 'Đã giao' },
-  { key: 'cancel_requested',  label: 'Chờ huỷ' },
-  { key: 'cancelled',         label: 'Đã huỷ' },
+  { key: 'all',              label: 'Tất cả đơn' },
+  { key: 'pending',          label: 'Chờ thanh toán' },
+  { key: 'processing',       label: 'Đang xử lý' },
+  { key: 'shipping',         label: 'Đang vận chuyển' },
+  { key: 'delivered',        label: 'Đã giao' },
+  { key: 'completed',        label: 'Hoàn tất' },
+  { key: 'cancel_requested', label: 'Chờ huỷ' },
+  { key: 'cancelled',        label: 'Đã huỷ' },
 ];
 
 const REASONS = [
@@ -29,7 +37,7 @@ const money  = (n) => (Number(n || 0)).toLocaleString('vi-VN') + 'đ';
 const dateVN = (d) => (d ? new Date(d).toLocaleString('vi-VN') : '-');
 
 const normStatus = (s) => {
-  const m = { shipped: 'shipping', delivered: 'completed', canceled: 'cancelled' };
+  const m = { shipped: 'shipping', delivered: 'delivered', canceled: 'cancelled' };
   return m[s] || s;
 };
 const labelStatus = (s) => {
@@ -37,12 +45,10 @@ const labelStatus = (s) => {
     pending: 'Chờ thanh toán',
     processing: 'Đang xử lý',
     shipping: 'Đang vận chuyển',
-    shipped: 'Đang vận chuyển',
-    completed: 'Đã giao',
     delivered: 'Đã giao',
+    completed: 'Hoàn tất',
     cancel_requested: 'Chờ huỷ (đợi duyệt)',
     cancelled: 'Đã huỷ',
-    canceled: 'Đã huỷ',
   };
   return m[s] || s;
 };
@@ -56,19 +62,21 @@ export default function Orders() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // State cho dialog huỷ
+  // Cancel dialog
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelOrderId, setCancelOrderId] = useState(null);
-  const [cancelIsPending, setCancelIsPending] = useState(false); // true nếu status 'pending' => huỷ ngay
+  const [cancelIsPending, setCancelIsPending] = useState(false);
   const [reasonKey, setReasonKey] = useState('');
   const [reasonOther, setReasonOther] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // ✅ ĐÃ XOÁ: state & modal tracking
+
   const reload = async () => {
-    if (!user?.id && !user?._id) return;
+    if (!user?._id && !user?.id) return;
     setLoading(true);
     try {
-      const data = await list({});
+      const data = await listOrders({});
       setItems(Array.isArray(data) ? data : (data?.items || []));
     } finally {
       setLoading(false);
@@ -89,7 +97,7 @@ export default function Orders() {
     });
   }, [items, tab, q]);
 
-  // Mở dialog chọn lý do
+  // Cancel dialog helpers
   const openCancelDialog = (orderId, isPending) => {
     setCancelOrderId(orderId);
     setCancelIsPending(!!isPending);
@@ -97,25 +105,15 @@ export default function Orders() {
     setReasonOther('');
     setCancelOpen(true);
   };
+  const canSubmitCancel = () => (reasonKey === 'other' ? reasonOther.trim().length > 0 : Boolean(reasonKey));
 
-  // Điều kiện có thể submit
-  const canSubmitCancel = () => {
-    if (reasonKey === 'other') return reasonOther.trim().length > 0;
-    return Boolean(reasonKey);
-  };
-
-  // Gửi yêu cầu huỷ
   const submitCancel = async () => {
     if (!cancelOrderId || !canSubmitCancel()) return;
-
     const picked = REASONS.find(r => r.key === reasonKey);
-    const finalReason = reasonKey === 'other'
-      ? (reasonOther || '').trim()
-      : (picked?.label || '');
-
+    const finalReason = reasonKey === 'other' ? (reasonOther || '').trim() : (picked?.label || '');
     setSubmitting(true);
     try {
-      await cancel(cancelOrderId, { reason: finalReason });
+      await cancelOrder(cancelOrderId, { reason: finalReason });
       setCancelOpen(false);
       setCancelOrderId(null);
       showToast({
@@ -138,6 +136,30 @@ export default function Orders() {
       setSubmitting(false);
     }
   };
+
+  // Withdraw cancel
+  const onWithdraw = async (id) => {
+    try {
+      await withdrawCancel(id);
+      showToast({ type: 'success', title: 'Đã rút yêu cầu huỷ', duration: 2200 });
+      await reload();
+    } catch (e) {
+      showToast({ type: 'error', title: 'Không rút được yêu cầu', msg: e?.message, duration: 3000 });
+    }
+  };
+
+  // Confirm received
+  const onConfirmReceived = async (id) => {
+    try {
+      await confirmReceived(id);
+      showToast({ type: 'success', title: 'Cảm ơn bạn! Đơn đã hoàn tất.', duration: 2200 });
+      await reload();
+    } catch (e) {
+      showToast({ type: 'error', title: 'Xác nhận thất bại', msg: e?.message, duration: 3000 });
+    }
+  };
+
+  const getGrand = (o) => Number(o?.pricing?.grandTotal ?? o?.total?.grand ?? 0);
 
   return (
     <div className="bg-gray-50">
@@ -162,6 +184,8 @@ export default function Orders() {
               </div>
             </div>
           </div>
+
+          {/* ✅ Sidebar giống hình: có thêm Đánh giá & Nhận xét; mục “Quản lý đơn hàng” đang active */}
           <nav className="p-2 text-[15px]">
             <Link to="/account/info" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
               <span className="w-6 text-center">👤</span> Thông tin tài khoản
@@ -203,7 +227,7 @@ export default function Orders() {
             </div>
           </div>
 
-          {/* Tìm kiếm */}
+          {/* Search */}
           <div className="px-5 pt-2 pb-4 border-b">
             <div className="flex items-center gap-3">
               <div className="relative flex-1">
@@ -234,7 +258,7 @@ export default function Orders() {
             </div>
           </div>
 
-          {/* Danh sách đơn */}
+          {/* List */}
           <div className="p-5">
             {loading ? (
               <div className="text-gray-600">Đang tải…</div>
@@ -242,67 +266,111 @@ export default function Orders() {
               <div className="space-y-4">
                 {view.map((o) => {
                   const id    = o._id || o.id;
-                  const total = o.total ?? o.pricing?.grandTotal ?? 0;
+                  const total = Number(o?.pricing?.grandTotal ?? o?.total?.grand ?? 0);
                   const st    = normStatus(o.status);
 
-                  const showCancelNow = st === 'pending';                       // huỷ ngay
-                  const showCancelReq = ['processing','shipping'].includes(st); // gửi yêu cầu huỷ
-                  const isCancelWait  = st === 'cancel_requested';
+                  const isPending   = st === 'pending';
+                  const isProcess   = st === 'processing';
+                  const isShipping  = st === 'shipping';
+                  const isDelivered = st === 'delivered';
+                  const isCompleted = st === 'completed';
+                  const isCancelReq = st === 'cancel_requested';
+                  const isCancelled = st === 'cancelled';
 
                   return (
                     <div key={id} className="rounded-lg border p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-semibold">Đơn #{String(o.code || id).slice(-6)}</div>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="font-semibold truncate">Đơn #{String(o.code || id).slice(-6)}</div>
                           <div className="text-sm text-gray-600">
                             Ngày: {dateVN(o.createdAt)} • Trạng thái: <b>{labelStatus(o.status)}</b>
                           </div>
-
-                          {isCancelWait && (
+                          {o.protectionUntil && (
+                            <div className="mt-1 text-xs text-gray-500">
+                              Bảo vệ người mua đến: {dateVN(o.protectionUntil)}
+                            </div>
+                          )}
+                          {isCancelReq && (
                             <div className="mt-1 text-xs text-amber-600">
                               Đã gửi yêu cầu huỷ — vui lòng chờ admin duyệt.
                             </div>
                           )}
                         </div>
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           <div className="text-lg font-semibold text-violet-700">{money(total)}</div>
 
-                          {(showCancelNow || showCancelReq) && (
-                            <div className="flex gap-2 justify-end mt-2">
+                          {/* Action buttons */}
+                          <div className="flex flex-wrap gap-2 justify-end mt-2">
+                            {/* Cancel / request cancel */}
+                            {(isPending || isProcess || isShipping) && (
                               <button
-                                onClick={() => openCancelDialog(id, showCancelNow)}
+                                onClick={() => openCancelDialog(id, isPending)}
                                 className="btn bg-gray-100 hover:bg-gray-200"
                               >
-                                {showCancelNow ? 'Huỷ đơn' : 'Yêu cầu huỷ'}
+                                {isPending ? 'Huỷ đơn' : 'Yêu cầu huỷ'}
                               </button>
-                              {showCancelNow && (
-                                <button
-                                  onClick={async () => {
-                                    try {
-                                      await rma(id, 'Không phù hợp');
-                                      showToast({
-                                        type: 'success',
-                                        title: 'Đã gửi yêu cầu đổi/trả',
-                                        msg: 'Chúng tôi sẽ liên hệ hỗ trợ sớm.',
-                                        duration: 2500,
-                                      });
-                                      await reload();
-                                    } catch (e) {
-                                      showToast({
-                                        type: 'error',
-                                        title: 'Không thể gửi yêu cầu đổi/trả',
-                                        msg: e?.message || 'Vui lòng thử lại sau.',
-                                        duration: 3000,
-                                      });
-                                    }
-                                  }}
-                                  className="btn bg-gray-100 hover:bg-gray-200"
-                                >
-                                  Yêu cầu đổi/trả
-                                </button>
-                              )}
-                            </div>
-                          )}
+                            )}
+
+                            {/* Rút yêu cầu huỷ */}
+                            {isCancelReq && (
+                              <button
+                                onClick={() => onWithdraw(id)}
+                                className="btn bg-gray-100 hover:bg-gray-200"
+                              >
+                                Rút yêu cầu huỷ
+                              </button>
+                            )}
+
+                            {/* ✅ ĐÃ XOÁ: nút Theo dõi vận đơn */}
+
+                            {/* Xác nhận đã nhận hàng */}
+                            {isDelivered && (
+                              <button
+                                onClick={() => onConfirmReceived(id)}
+                                className="btn bg-emerald-600 text-white hover:bg-emerald-700"
+                              >
+                                Đã nhận hàng
+                              </button>
+                            )}
+
+                            {/* RMA nếu còn bảo vệ người mua */}
+                            {(isDelivered || isCompleted) && (() => {
+                              const until = o?.protectionUntil ? new Date(o.protectionUntil) : null;
+                              const active = !!until && Date.now() < +until;
+                              return active;
+                            })() && (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await requestRMA(id, 'Không phù hợp / Lỗi sản phẩm');
+                                    showToast({
+                                      type: 'success',
+                                      title: 'Đã gửi yêu cầu đổi/trả',
+                                      msg: 'Chúng tôi sẽ liên hệ hỗ trợ sớm.',
+                                      duration: 2500,
+                                    });
+                                  } catch (e) {
+                                    showToast({
+                                      type: 'error',
+                                      title: 'Không thể gửi yêu cầu đổi/trả',
+                                      msg: e?.message || 'Vui lòng thử lại sau.',
+                                      duration: 3000,
+                                    });
+                                  }
+                                }}
+                                className="btn bg-gray-100 hover:bg-gray-200"
+                              >
+                                Đổi/Trả – Hoàn tiền
+                              </button>
+                            )}
+
+                            {/* Mua lại */}
+                            {(isCompleted || isCancelled) && (
+                              <Link to="/categories" className="btn bg-gray-100 hover:bg-gray-200">
+                                Mua lại
+                              </Link>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -328,7 +396,7 @@ export default function Orders() {
         </section>
       </div>
 
-      {/* Dialog chọn lý do huỷ */}
+      {/* Cancel reason dialog */}
       {cancelOpen && (
         <div className="fixed inset-0 z-[1000]">
           <div

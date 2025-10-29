@@ -103,9 +103,28 @@ export const publishers = {
  * Orders / RMA / Coupons / Users / Content / Settings
  * ========================= */
 export const orders = {
+  // Danh sách
   list: (params) => api.get('/admin/orders', { params }),
+
+  // Cập nhật trạng thái trực tiếp (cách cũ)
   updateStatus: (id, status, payload = {}) =>
     api.patch(`/admin/orders/${id}/status`, { status, ...payload }),
+
+  // Quy trình vận hành (admin dừng ở delivered)
+  processing: (id) => api.post(`/admin/orders/${id}/processing`),
+  shipping:   (id, payload = {}) => api.post(`/admin/orders/${id}/shipping`, payload), // payload tuỳ chọn (để tương thích nếu sau này có)
+  delivered:  (id, payload = {}) => api.post(`/admin/orders/${id}/delivered`, payload),
+
+  // Duyệt/Từ chối yêu cầu huỷ
+  approveCancel: (id, note = '') => api.post(`/admin/orders/${id}/cancel/approve`, { note }),
+  rejectCancel:  (id, reason = '') => api.post(`/admin/orders/${id}/cancel/reject`, { reason }),
+
+  // Ghi chú & hoàn tiền
+  addNote: (id, text) => api.post(`/admin/orders/${id}/notes`, { text }),
+  refund:  (id, amount, reason = '') => api.post(`/admin/orders/${id}/refund`, { amount, reason }),
+
+  // Xoá đơn (BE chỉ cho xoá khi cancelled|completed)
+  remove: (id) => api.delete(`/admin/orders/${id}`),
 };
 
 export const rma = {

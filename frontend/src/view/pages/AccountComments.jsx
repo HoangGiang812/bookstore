@@ -27,7 +27,7 @@ export default function AccountComments() {
           setItems(await ensureCovers(mine));
         } catch {
           // 2) Fallback: gom từ các đơn đã giao rồi lấy myReview(bookId)
-          const res = await Orders.mine({ status: "delivered", limit: 50 });
+          const res = await Orders.mine({ status: "completed", limit: 50 });
           const orders = Array.isArray(res?.items) ? res.items : (res?.data?.items || res || []);
           const bookIds = [];
           for (const o of orders || []) {
