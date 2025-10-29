@@ -1,12 +1,12 @@
 // backend/src/controllers/admin/orderAdminController.js
-import mongoose from 'mongoose';
 import { Order } from '../../models/Order.js';
 import { Book } from '../../models/Book.js';
 import { Transaction } from '../../models/Transaction.js';
 
 function pushHistory(o, type, by = 'admin', note = '', extra = {}) {
   o.history = Array.isArray(o.history) ? o.history : [];
-  o.history.unshift({ ts: new Date(), type, by, note, ...extra });
+  const ts = new Date();
+  o.history.unshift({ ts, at: ts, type, by, note, ...extra });
 }
 
 /** ========== Ghi chú nội bộ đơn hàng ========== */
@@ -36,7 +36,6 @@ export const approveCancel = async (req, res) => {
   const o = await Order.findById(id);
   if (!o) return res.status(404).json({ message: 'order_not_found' });
 
-  // Chỉ cho phép duyệt khi đơn đang ở trạng thái 'cancel_requested' hoặc khách đã tạo yêu cầu huỷ
   const isRequested =
     o.status === 'cancel_requested' ||
     (o.cancelRequest && o.cancelRequest.requested);
@@ -48,7 +47,15 @@ export const approveCancel = async (req, res) => {
   // Đổi trạng thái
   o.status = 'cancelled';
   o.cancelledAt = new Date();
-  o.cancelRequest = { ...(o.cancelRequest || {}), approvedAt: new Date(), approvedBy: req.user?._id };
+  // Ghi cờ phê duyệt vào subdoc cancellation (đúng schema)
+  o.cancellation = {
+    ...(o.cancellation || {}),
+    approved: true,
+    approvedBy: req.user?._id,
+    approvedAt: new Date(),
+  };
+  // Clear cờ yêu cầu huỷ
+  o.cancelRequest = { requested: false };
 
   pushHistory(
     o,
@@ -57,8 +64,7 @@ export const approveCancel = async (req, res) => {
     note || 'Admin approved cancel'
   );
 
-  // Hoàn kho: chỉ hoàn kho nếu trước đó đã trừ kho (tức là mọi đơn đều trừ ngay khi tạo).
-  // Nếu đơn đã giao/đang vận chuyển, tuỳ chính sách bạn có thể KHÔNG hoàn kho ở đây.
+  // Hoàn kho (tuỳ chính sách, ở đây hoàn kho vì đã trừ khi tạo)
   try {
     for (const it of (o.items || [])) {
       if (it?.bookId && Number.isFinite(Number(it.qty))) {
@@ -69,7 +75,7 @@ export const approveCancel = async (req, res) => {
         );
       }
     }
-  } catch (_) { /* ignore */ }
+  } catch { /* ignore */ }
 
   await o.save();
   return res.json(o.toObject());
@@ -90,22 +96,19 @@ export const rejectCancel = async (req, res) => {
     return res.status(400).json({ message: 'order_not_in_cancel_request_state' });
   }
 
-  // Trả đơn về trạng thái trước (ưu tiên processing nếu có thanh toán, else giữ nguyên)
-  // Bạn có thể quyết định chính xác theo business của bạn.
-  // Ở đây: nếu trước đó đơn đang shipping/shipped/completed thì không reject (tuỳ chọn).
-  if (o.processingAt || (o.payment && String(o.payment.status).toLowerCase() === 'paid')) {
-    o.status = 'processing';
-  } else {
-    // fallback
-    o.status = 'pending';
-  }
+  // Trả về trạng thái trước: nếu đã thanh toán hoặc đang xử lý → processing, ngược lại → pending
+  const paid = String(o.payment?.status || '').toLowerCase() === 'paid' || !!o.payment?.capturedAt;
+  o.status = paid ? 'processing' : 'pending';
 
-  o.cancelRequest = {
-    requested: false,
+  // Ghi dấu vào cancellation (rejected)
+  o.cancellation = {
+    ...(o.cancellation || {}),
     rejectedAt: new Date(),
     rejectedBy: req.user?._id,
-    reason: reason || 'Rejected by admin',
   };
+
+  // Clear yêu cầu huỷ
+  o.cancelRequest = { requested: false, reason: '' };
 
   pushHistory(
     o,
@@ -118,7 +121,7 @@ export const rejectCancel = async (req, res) => {
   return res.json(o.toObject());
 };
 
-/** ========== Hoàn tiền (refund) ========== */
+/** ========== Hoàn tiền (refund) ghi nhận trong hệ thống ========== */
 export const refundOrder = async (req, res) => {
   const { id } = req.params;
   const { amount, reason } = req.body || {};
@@ -150,13 +153,8 @@ export const refundOrder = async (req, res) => {
     status:
       refunded + amt >= totalGrand
         ? 'refunded'
-        : (o.payment?.status || 'paid'), // giữ 'paid' nếu là hoàn 1 phần
+        : (o.payment?.status || 'paid'),
   };
-
-  // Nếu hoàn toàn và đơn đã/đang huỷ, có thể đánh dấu trạng thái đơn (tuỳ business)
-  if (o.payment.status === 'refunded' && ['cancelled', 'cancel_requested'].includes(o.status)) {
-    o.status = 'cancelled';
-  }
 
   pushHistory(
     o,
@@ -178,10 +176,7 @@ export const refundOrder = async (req, res) => {
     at: new Date(),
   });
 
-  // Hoàn kho (tuỳ chính sách). Thông thường hoàn kho khi:
-  // - huỷ đơn đã trừ kho (chưa giao), hoặc
-  // - hoàn hàng (RMA).
-  // Ở đây: nếu đơn đã ở trạng thái cancelled hoặc returned thì hoàn kho.
+  // Hoàn kho nếu đơn đã huỷ/hoàn (tuỳ chính sách)
   if (['cancelled', 'returned', 'refunded'].includes(o.status)) {
     try {
       for (const it of (o.items || [])) {
@@ -193,7 +188,7 @@ export const refundOrder = async (req, res) => {
           );
         }
       }
-    } catch (_) { /* ignore */ }
+    } catch { /* ignore */ }
   }
 
   return res.json(o.toObject());

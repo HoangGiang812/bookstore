@@ -27,6 +27,7 @@ const CancellationSchema = new Schema({
 
 const StatusHistorySchema = new Schema({
   at:     { type: Date, default: Date.now },
+  ts:     { type: Date }, // để giữ tương thích các chỗ push {ts: ...}
   by:     { type: String, default: 'system' }, // email / name / 'system'
   type:   { type: String, default: '' },       // create|paid|process|ship|deliver|cancel_requested|cancel|completed|...
   note:   { type: String, default: '' },
@@ -54,6 +55,15 @@ const AddressSchema = new Schema({
   isDefault:Boolean
 }, { _id: false });
 
+/* ===== Shipping subdoc (để theo dõi vận đơn) ===== */
+const ShippingSchema = new Schema({
+  method:       { type: String, default: 'STANDARD' },
+  carrier:      { type: String, default: null },
+  trackingNo:   { type: String, default: null },
+  status:       { type: String, default: 'pending' }, // mirror/trạng thái vận chuyển
+  estimatedDays:{ type: Number, default: null }
+}, { _id: false });
+
 /* ===== Main schema ===== */
 const OrderSchema = new Schema({
   code:  { type: String, index: true }, // mã đơn của bạn (có thể unique ở nơi khác)
@@ -63,7 +73,7 @@ const OrderSchema = new Schema({
 
   items:         { type: [OrderItemSchema], default: [] },
 
-  // Tổng tiền (bạn đã có cả 2 dạng: total + pricing → giữ nguyên để tương thích)
+  // Tổng tiền (giữ cả 2 dạng: total + pricing để tương thích)
   subtotal:     { type: Number, default: 0 },
   shippingFee:  { type: Number, default: 0 },
   tax:          { type: Number, default: 0 },
@@ -81,6 +91,9 @@ const OrderSchema = new Schema({
   },
 
   shippingAddress: { type: AddressSchema },
+
+  // NEW: shipping info
+  shipping: { type: ShippingSchema, default: () => ({}) },
 
   // Thanh toán
   payment: {
@@ -109,6 +122,7 @@ const OrderSchema = new Schema({
   processingAt: Date,
   shippedAt:    Date,
   deliveredAt:  Date,
+  completedAt:  Date,
   cancelledAt:  Date,
 
   // Buyer protection: auto-complete sau N ngày nếu không khiếu nại
@@ -142,7 +156,9 @@ OrderSchema.index({ 'payment.intentId': 1 }, { sparse: true });
 
 /* ===== Helpers ===== */
 OrderSchema.methods.pushStatus = function (type, by = 'system', note = '', amount) {
-  this.history.unshift({ at: new Date(), by, type, note, amount });
+  const ts = new Date();
+  this.history = Array.isArray(this.history) ? this.history : [];
+  this.history.unshift({ at: ts, ts, by, type, note, amount });
 };
 
 /* ===== Model & exports ===== */

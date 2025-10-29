@@ -1,51 +1,27 @@
-import express from 'express';
-import Order from '../../models/Order.js';
-import { requireAdmin } from '../../middlewares/auth.js';
-import { refundPayment } from '../../services/payments.js'; // stub bên dưới
+// backend/src/routes/admin/orders.js
+import { Router } from 'express';
+import { requireRoles } from '../../middlewares/auth.js';
+import {
+  approveCancel,
+  rejectCancel,
+  addOrderNote,
+  refundOrder,
+} from '../../controllers/admin/orderAdminController.js';
 
-const router = express.Router();
+const r = Router();
+// Cho phép cả admin và staff quản trị đơn hàng
+const requireAdmin = requireRoles('admin', 'staff');
 
-// Duyệt huỷ
-router.post('/:id/cancel/approve', requireAdmin, async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const o = await Order.findById(id);
-    if (!o) return res.status(404).json({ message: 'Không tìm thấy đơn' });
+// Ghi chú nội bộ đơn hàng
+r.post('/:id/notes', requireAdmin, addOrderNote);
 
-    if (o.payment?.captured) {
-      // thực hiện refund qua cổng thanh toán
-      const r = await refundPayment(o.payment.txnId, o.total);
-      o.cancellation = {
-        approved: true,
-        approvedBy: req.user._id,
-        at: new Date(),
-        refund: { ok: !!r?.ok, amount: o.total, txnId: r?.id || '' }
-      };
-    } else {
-      o.cancellation = { approved: true, approvedBy: req.user._id, at: new Date() };
-    }
-    o.pushStatus('cancelled', req.user._id, 'Admin approved cancellation');
-    o.cancelRequest = { requested: false };
-    await o.save();
-    res.json({ ok: true, status: o.status });
-  } catch (e) { next(e); }
-});
+// Duyệt yêu cầu huỷ
+r.post('/:id/cancel/approve', requireAdmin, approveCancel);
 
-// Từ chối huỷ
-router.post('/:id/cancel/reject', requireAdmin, async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { note = '' } = req.body || {};
-    const o = await Order.findById(id);
-    if (!o) return res.status(404).json({ message: 'Không tìm thấy đơn' });
+// Từ chối yêu cầu huỷ
+r.post('/:id/cancel/reject', requireAdmin, rejectCancel);
 
-    // trả về trạng thái trước khi yêu cầu (nếu bạn có lưu from trong statusHistory, lấy bản ghi gần nhất không phải cancel_requested)
-    const prev = [...o.statusHistory].reverse().find(h => h.to === 'cancel_requested')?.from || 'processing';
-    o.pushStatus(prev, req.user._id, `Admin rejected cancel: ${note}`);
-    o.cancelRequest = { requested: false };
-    await o.save();
-    res.json({ ok: true, status: o.status });
-  } catch (e) { next(e); }
-});
+// Hoàn tiền (ghi nhận hệ thống; nếu cần tích hợp cổng, làm trong controller)
+r.post('/:id/refund', requireAdmin, refundOrder);
 
-export default router;
+export default r;
