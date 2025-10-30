@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BookOpen, Users, ShoppingCart, CreditCard, BarChart3, Gift, Bell, Search, Menu, X, Home, LogOut } from 'lucide-react';
+import { BookOpen, Users, ShoppingCart, CreditCard, BarChart3, Gift, Bell, Search, Menu, X, Home, LogOut, Tag } from 'lucide-react';
 import api from '@/services/api';
 import { useAuth } from '@/store/useAuth';
 
@@ -14,6 +14,7 @@ import ContentTab from './Content.jsx';
 import ProductsPage from './ProductsPage';
 import AuthorsPage from './AuthorsPage';
 import PostsAdmin from './PostsAdmin';
+import CategoryPage from './CategoryPage.jsx';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -95,6 +96,8 @@ export default function AdminDashboard() {
         return <OverviewTab kpi={kpi} timeFilter={timeFilter} setTimeFilter={setTimeFilter} />;
       case 'products':
         return <ProductsPage />;
+      case 'categories':
+        return <CategoryPage />;
       case 'orders':
         return (
           <OrdersTab
@@ -136,6 +139,7 @@ export default function AdminDashboard() {
             {[
               ['overview','Tổng quan',BarChart3],
               ['products','Quản lý sản phẩm',BookOpen],
+              ['categories', 'Quản lý Danh mục', Tag],
               ['authors','Tác giả',Users],
               ['posts','Bài viết',BookOpen],
               ['orders','Quản lý đơn hàng',ShoppingCart],
