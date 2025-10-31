@@ -3,21 +3,8 @@ import { FiShoppingCart } from "react-icons/fi";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../store/useAuth";
 import { useWishlist } from "../../store/useWishlist";
+import { getImageUrl } from '../../services/api';
 
-const FALLBACK_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(
-  `<svg xmlns='http://www.w3.org/2000/svg' width='400' height='600'>
-     <rect fill='#eee' width='100%' height='100%'/>
-     <text x='50%' y='50%' text-anchor='middle' font-family='system-ui'
-           font-size='18' fill='#888'>No Image</text>
-   </svg>`
-)}`;
-
-const safe = (v) =>
-  typeof v === "string" && (v.startsWith("data:") || /^https?:\/\//.test(v))
-    ? v
-    : FALLBACK_SVG;
-
-/* -------------------- FX helpers -------------------- */
 function rippleAt(el, e) {
   try {
     const rect = el.getBoundingClientRect();
@@ -41,7 +28,7 @@ function flyToCart(fromEl, imageSrc) {
   const to = cartTarget.getBoundingClientRect();
 
   const img = document.createElement("img");
-  img.src = imageSrc || FALLBACK_SVG;
+  img.src = getImageUrl(imageSrc);
   img.alt = "book";
   img.className = "fx-fly";
   img.style.setProperty("--start-x", `${from.left + from.width / 2}px`);
@@ -91,7 +78,7 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
     e.stopPropagation();
 
     rippleAt(e.currentTarget, e);
-    flyToCart(e.currentTarget, safe(book.image || book.cover || book.coverUrl));
+    flyToCart(e.currentTarget, book.image || book.cover || book.coverUrl);
 
     if (typeof onAdd === "function") {
       onAdd(book);
@@ -148,11 +135,11 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
         </button>
 
         <img
-          src={safe(book.image || book.cover || book.coverUrl)}
+          src={getImageUrl(book.image || book.cover || book.coverUrl)}
           alt={book.title || "Book cover"}
           className="w-[175px] h-[244px] object-contain duration-300 group-hover:scale-[1.01]"
           onError={(e) => {
-            e.currentTarget.src = FALLBACK_SVG;
+            e.currentTarget.src = getImageUrl(null); // Dùng placeholder toàn cục
           }}
         />
 

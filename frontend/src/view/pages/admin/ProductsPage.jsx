@@ -2,9 +2,36 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { listBooks, createBook, updateBook, deleteBook, categories as catApi } from '@/services/admin';
+import ImageUploader from './ImageUploader.jsx';
+import { getImageUrl } from '@/services/api';
 
 const fmtVND = (n) =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(n || 0));
+
+function Field({ label, children }) {
+  return (
+    <label className="block text-sm">
+      {label}
+      <div className="mt-1">{children}</div>
+    </label>
+  );
+}
+
+function TabButton({ label, active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-4 py-2 text-sm font-medium -mb-px ${
+        active 
+          ? 'border-b-2 border-blue-600 text-blue-600' 
+          : 'text-gray-500 hover:text-gray-700'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
 
 /* ==== Helpers ==== */
 function buildTree(items) {
@@ -245,6 +272,7 @@ export default function ProductsPage() {
   const [cats, setCats] = useState([]);
   const [editing, setEditing] = useState(null);
   const [draft, setDraft] = useState(initDraft());
+  const [imageTab, setImageTab] = useState('upload');
 
   function initDraft() {
     return {
@@ -281,13 +309,18 @@ export default function ProductsPage() {
   const salePriceOf = (b) =>
     Math.round(Number(b.price || 0) * (1 - Math.max(0, Number(b.discountPercent || 0)) / 100));
 
-  const openNew = () => { setEditing({ new: true }); setDraft(initDraft()); };
+  const openNew = () => { 
+    setEditing({ new: true }); 
+    setDraft(initDraft());
+    setImageTab('upload');
+  };
   const openEdit = (b) => {
     setEditing(b);
+    const cover = b.coverUrl || '';
     setDraft({
       title: b.title || '',
       author: b.author || b.authorName || '',
-      coverUrl: b.coverUrl || '',
+      coverUrl: cover,
       price: b.price || 0,
       discountPercent: b.discountPercent || 0,
       stock: b.stock || 0,
@@ -295,6 +328,13 @@ export default function ProductsPage() {
       categoryIds: (b.categoryIds || b.categories || []).map(String),
       isActive: b.isActive !== false,
     });
+    
+    // Tự động chọn tab dựa trên link ảnh
+    if (cover.startsWith('http')) {
+      setImageTab('url');
+    } else {
+      setImageTab('upload');
+    }
   };
   const close = () => setEditing(null);
 
@@ -311,6 +351,13 @@ export default function ProductsPage() {
       }
     });
     return Array.from(out);
+  };
+
+  const handleImageChange = (newImageUrl) => {
+    setDraft(prev => ({
+      ...prev,
+      coverUrl: newImageUrl, // Cập nhật ảnh vào state
+    }));
   };
 
   const save = async (e) => {
@@ -388,7 +435,14 @@ export default function ProductsPage() {
                 <tr key={b._id || b.id} className="border-t">
                   <td className="p-2">
                     <div className="flex items-center gap-2">
-                      {b.coverUrl ? <img src={b.coverUrl} alt="" className="w-8 h-10 object-cover rounded" /> : null}
+                      {b.coverUrl ? (
+                        <img 
+                          src={getImageUrl(b.coverUrl, null)} // Dùng hàm mới
+                          alt={b.title} 
+                          className="w-8 h-10 object-cover rounded" 
+                          onError={(e) => (e.currentTarget.src = getImageUrl(null))} // Fallback
+                        />
+                      ) : null}
                       <span className="font-medium">{b.title}</span>
                     </div>
                   </td>
@@ -418,37 +472,75 @@ export default function ProductsPage() {
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={close}>
           <form className="bg-white rounded-xl max-w-2xl w-full p-6" onClick={(e) => e.stopPropagation()} onSubmit={save}>
             <div className="text-lg font-semibold mb-3">{editing?.new ? 'Thêm sách' : 'Sửa sách'}</div>
-            <div className="grid md:grid-cols-2 gap-3">
-              <Field label="Tên sách"><input className="input" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} required /></Field>
-              <Field label="Tác giả"><input className="input" value={draft.author} onChange={(e) => setDraft({ ...draft, author: e.target.value })} /></Field>
-              <Field label="Giá"><input type="number" min={0} className="input" value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) || 0 })} /></Field>
-              <Field label="Giảm giá (%)"><input type="number" min={0} max={100} className="input" value={draft.discountPercent} onChange={(e) => setDraft({ ...draft, discountPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} /></Field>
-              <Field label="Ảnh (URL)"><input className="input" value={draft.coverUrl} onChange={(e) => setDraft({ ...draft, coverUrl: e.target.value })} /></Field>
-              <Field label="Trạng thái">
-                <select className="input" value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>
-                  <option value="available">Còn hàng</option>
-                  <option value="out-of-stock">Hết hàng</option>
-                </select>
-              </Field>
-              <Field label="Kho hàng"><input type="number" min={0} className="input" value={draft.stock} onChange={(e) => setDraft({ ...draft, stock: Number(e.target.value) || 0 })} /></Field>
+            <div className="grid md:grid-cols-2 gap-4 max-h-[80vh] overflow-y-auto pr-2">
+              {/* Cột 1: Thông tin cơ bản */}
+              <div className="space-y-3">
+                <Field label="Tên sách"><input className="input" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} required /></Field>
+                <Field label="Tác giả"><input className="input" value={draft.author} onChange={(e) => setDraft({ ...draft, author: e.target.value })} /></Field>
+                <Field label="Giá"><input type="number" min={0} className="input" value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) || 0 })} /></Field>
+                <Field label="Giảm giá (%)"><input type="number" min={0} max={100} className="input" value={draft.discountPercent} onChange={(e) => setDraft({ ...draft, discountPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} /></Field>
+                <Field label="Kho hàng"><input type="number" min={0} className="input" value={draft.stock} onChange={(e) => setDraft({ ...draft, stock: Number(e.target.value) || 0 })} /></Field>
+                <Field label="Trạng thái">
+                  <select className="input" value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>
+                    <option value="available">Còn hàng</option>
+                    <option value="out-of-stock">Hết hàng</option>
+                  </select>
+                </Field>
+              </div>
 
-              <Field label="Danh mục (cha–con, chọn được nhiều)">
-                <CategoryTreeSelect roots={roots} value={draft.categoryIds} onChange={(ids) => setDraft({ ...draft, categoryIds: ids })} />
-              </Field>
-            </div>
+              {/* Cột 2: Ảnh (Dùng Tabs) và Danh mục */}
+              <div className="space-y-3">
+                
+                {/* --- BẮT ĐẦU KHỐI TABS ẢNH --- */}
+                <Field label="Ảnh bìa">
+                  <div className="flex border-b mb-2">
+                    <TabButton
+                      label="Tải lên (Local)"
+                      active={imageTab === 'upload'}
+                      onClick={() => setImageTab('upload')}
+                    />
+                    <TabButton
+                      label="Dán URL"
+                      active={imageTab === 'url'}
+                      onClick={() => setImageTab('url')}
+                    />
+                  </div>
 
-            <div className="mt-3 text-sm">
-              <span className="text-gray-500 mr-2">Giá hiển thị:</span>
-              {draft.discountPercent > 0 ? (
-                <>
-                  <span className="line-through mr-2">{fmtVND(draft.price)}</span>
-                  <span className="font-semibold">
-                    {fmtVND(Math.round(Number(draft.price || 0) * (1 - Math.max(0, Number(draft.discountPercent || 0)) / 100)))}
-                  </span>
-                </>
-              ) : (
-                <span className="font-semibold">{fmtVND(draft.price)}</span>
-              )}
+                  {/* Nội dung Tabs */}
+                  <div className="mt-4">
+                    {imageTab === 'upload' && (
+                      <div>
+                        <ImageUploader 
+                          value={draft.coverUrl}
+                          onChange={handleImageChange}
+                        />
+                        {/* Nếu ảnh là http, hiển thị cảnh báo */}
+                        {draft.coverUrl.startsWith('http') && (
+                          <p className="text-xs text-amber-700 mt-2">
+                            Bạn đang dùng ảnh URL. Tải lên để thay thế.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {imageTab === 'url' && (
+                      <div>
+                        <input 
+                          className="input w-full" 
+                          placeholder="https://example.com/image.jpg"
+                          value={draft.coverUrl.startsWith('http') ? draft.coverUrl : ''} 
+                          onChange={(e) => setDraft({ ...draft, coverUrl: e.target.value })} 
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Dán một link ảnh từ web khác.</p>
+                      </div>
+                    )}
+                  </div>
+                </Field>
+                {/* --- KẾT THÚC KHỐI TABS ẢNH --- */}
+
+                <Field label="Danh mục (cha–con, chọn được nhiều)">
+                  <CategoryTreeSelect roots={roots} value={draft.categoryIds} onChange={(ids) => setDraft({ ...draft, categoryIds: ids })} />
+                </Field>
+              </div>
             </div>
 
             <div className="flex gap-2 mt-4 justify-end">
@@ -462,11 +554,4 @@ export default function ProductsPage() {
   );
 }
 
-function Field({ label, children }) {
-  return (
-    <label className="block text-sm">
-      {label}
-      <div className="mt-1">{children}</div>
-    </label>
-  );
-}
+

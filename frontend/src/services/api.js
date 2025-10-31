@@ -79,6 +79,18 @@ export function clearAllAuth() {
   } catch {}
 }
 
+export function getImageUrl(path, fallback = '/placeholder.jpg') {
+  if (!path || typeof path !== 'string') {
+    // Nếu không có path, trả về ảnh placeholder
+    return fallback.startsWith('http') ? fallback : `${ORIGIN}${fallback}`;
+  }
+  if (path.startsWith('http') || path.startsWith('data:')) {
+    return path; // Đây đã là link tuyệt đối hoặc data URI
+  }
+  // Đây là link local (ví dụ: /uploads/image.jpg), thêm domain backend vào
+  return `${ORIGIN}${path}`;
+}
+
 function withParams(url, params) {
   if (!params) return url;
   const usp =
