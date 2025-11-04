@@ -56,9 +56,14 @@ function mapBook(b) {
     b.categoryName ||
     (Array.isArray(b.categories) ? b.categories[0]?.name : b.category) ||
     "Khác";
-
-  const price = toNumber(b?.price?.sale ?? b?.salePrice ?? b?.price);
-  const original = toNumber(b?.price?.value ?? b?.originalPrice ?? b?.price);
+  const originalPrice = toNumber(b?.price ?? 0); 
+  const discountPercent = toNumber(b?.discountPercent ?? b?.discount ?? 0); 
+  const hasDiscount = discountPercent > 0 && originalPrice > 0;
+  const price = toNumber(b?.salePrice ?? 0) > 0 
+    ? toNumber(b.salePrice) 
+    : (hasDiscount
+        ? Math.round(originalPrice * (1 - discountPercent / 100))
+        : originalPrice);
 
   return {
     id: b._id || b.id || b.bookId,
@@ -69,15 +74,16 @@ function mapBook(b) {
       b.authorName ||
       (Array.isArray(b.authors) ? b.authors[0]?.name : b.author) ||
       "—",
-    price,
-    originalPrice: original,
+
+    price: price,
+    originalPrice: originalPrice,
+
     rating: b.ratingAverage ?? b.rating ?? 0,
     reviewCount: b.reviewsCount ?? b.reviewCount ?? 0,
-    discount:
-      toNumber(b.discount) ||
-      (original > 0 && price > 0 && original > price
-        ? Math.round(((original - price) / original) * 100)
-        : 0),
+
+    discount: discountPercent, 
+    discountPercent: discountPercent, 
+
     category: catName,
     categorySlug: categoryObj?.slug || b.categorySlug || normalize(catName),
     image:

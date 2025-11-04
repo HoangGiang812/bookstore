@@ -1,7 +1,7 @@
 // src/view/pages/Cart.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { Minus, Plus, Trash2, CheckSquare, Square, XCircle, CheckCircle } from 'lucide-react';
+import { Minus, Plus, Trash2, CheckSquare, Square, XCircle, CheckCircle, X, Ticket } from 'lucide-react';
 
 import { useCart } from '../../store/useCart';
 import { useAuth } from '../../store/useAuth';
@@ -15,7 +15,7 @@ import {
   clearBuyNow,
 } from '../../services/cart';
 import { create as createOrder } from '../../services/orders';
-import api from '../../services/api';
+import api, { getImageUrl } from '../../services/api';
 
 const toVND = (n) =>
   new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 })
@@ -221,6 +221,61 @@ function AddressModal({ open, onClose, onSave, user }) {
   );
 }
 
+function CouponModal({ open, onClose, coupons, onSelect }) {
+  if (!open) return null;
+  
+  const formatValue = (coupon) => {
+    if (coupon.type === 'percent') return `${coupon.value}%`;
+    return `${Number(coupon.value || 0).toLocaleString('vi-VN')} đ`;
+  };
+
+  return (
+    <div className="fixed inset-0 z-[1001]" onClick={onClose}>
+      {/* Lớp phủ (z-index cao hơn modal địa chỉ) */}
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+      
+      <div 
+        className="relative z-10 w-full max-w-lg rounded-2xl bg-white shadow-xl max-h-[80vh] flex flex-col mx-auto mt-20"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <h2 className="text-xl font-semibold">Mã giảm giá có sẵn</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">✕</button>
+        </div>
+        
+        <div className="p-6 space-y-3 overflow-y-auto">
+          {coupons.length === 0 && (
+            <p className="text-gray-600">Không tìm thấy mã giảm giá nào.</p>
+          )}
+          {coupons.map(coupon => (
+            <div key={coupon._id} className="border border-dashed border-gray-300 rounded-lg p-4 flex items-center gap-4">
+              <div className="p-3 bg-blue-100 text-blue-600 rounded-lg">
+                <Ticket size={24} />
+              </div>
+              <div className="flex-1">
+                <div className="font-bold text-lg">{coupon.code}</div>
+                <div className="text-sm text-gray-700">
+                  Giảm {formatValue(coupon)}
+                  {coupon.minOrder > 0 && ` cho đơn từ ${Number(coupon.minOrder).toLocaleString('vi-VN')} đ`}
+                </div>
+                {coupon.description && (
+                  <p className="text-xs text-gray-500 mt-1">{coupon.description}</p>
+                )}
+              </div>
+              <button 
+                onClick={() => onSelect(coupon.code)}
+                className="btn-primary px-4 py-2"
+              >
+                Áp dụng
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ----- BẮT ĐẦU PHẦN THAY ĐỔI -----
 export default function CartPage() {
   const cart = useCart();
@@ -246,10 +301,13 @@ export default function CartPage() {
   const [errMsg, setErrMsg] = useState('');
   const [shipFee, setShipFee] = useState(0);
   const [estimating, setEstimating] = useState(false);
-  const [selected, setSelected] = useState(() => new Set());
+  const [selected, setSelected] = useState(new Set());
   const [buyOnly, setBuyOnly] = useState(false);
 
   const [openAddrModal, setOpenAddrModal] = useState(false);
+  const [showCouponModal, setShowCouponModal] = useState(false);
+  const [publicCoupons, setPublicCoupons] = useState([]);
+  const [loadingCoupons, setLoadingCoupons] = useState(false);
 
   useEffect(() => { cart.init(); }, [user]);
 
@@ -261,9 +319,13 @@ export default function CartPage() {
     setAddressId(String(def.id));
   }, [addresses.length]);
 
-  useEffect(() => {
+ useEffect(() => {
     const isBuyNow = sp.get('buy') === '1';
-    if (!isBuyNow) { setBuyOnly(false); return; }
+    if (!isBuyNow) { 
+      setBuyOnly(false); 
+      setSelected(new Set(cart.items.map(idOf).map(String)));
+      return; 
+    }
     const t = setTimeout(() => {
       const bn = getBuyNow();
       if (!bn?.id) { setBuyOnly(false); return; }
@@ -282,17 +344,21 @@ export default function CartPage() {
     setSelected((prev) => {
       const ok = new Set(cart.items.map(idOf).map(String));
       const next = new Set();
-      for (const id of prev) if (ok.has(String(id))) next.add(String(id));
+      for (const id of prev) {
+        if (ok.has(String(id))) next.add(String(id));
+      }
+      if (!buyOnly && next.size === 0 && cart.items.length > 0) {
+        return new Set(cart.items.map(idOf).map(String));
+      }
       return next;
     });
-  }, [cart.items]);
+  }, [cart.items, buyOnly]);
 
   const subtotalAll = useMemo(() => calcSubtotal(cart.items), [cart.items]);
 
   const selectedItems = useMemo(() => {
-    if (buyOnly) return cart.items.filter(i => selected.has(String(idOf(i))));
-    return selected.size === 0 ? cart.items : cart.items.filter(i => selected.has(String(idOf(i))));
-  }, [cart.items, selected, buyOnly]);
+    return cart.items.filter(i => selected.has(String(idOf(i))));
+  }, [cart.items, selected]);
 
   const subtotalSelected = useMemo(() => calcSubtotal(selectedItems), [selectedItems]);
 
@@ -313,9 +379,22 @@ export default function CartPage() {
     return () => { alive = false; };
   }, [addressId, addresses, subtotalSelected]);
 
-  // ===== THAY ĐỔI 2: Tạo hàm áp dụng coupon =====
-  const handleApplyCoupon = async () => {
-    if (!couponInput.trim()) {
+  useEffect(() => {
+    setLoadingCoupons(true);
+    api.get('/public-coupons') // Gọi API mới tạo
+      .then(data => {
+        setPublicCoupons(Array.isArray(data) ? data : []);
+      })
+      .catch(e => {
+        console.error("Lỗi tải mã giảm giá:", e);
+      })
+      .finally(() => {
+        setLoadingCoupons(false);
+      });
+  }, []);
+
+  const handleApplyCoupon = async (codeToApply) => {
+    if (!codeToApply.trim()) {
       setCouponResult({ valid: false, discount: 0, code: '', message: 'Vui lòng nhập mã.', loading: false });
       return;
     }
@@ -325,18 +404,19 @@ export default function CartPage() {
     }
 
     setCouponResult((prev) => ({ ...prev, loading: true, message: '' }));
+    
     const itemsPayload = selectedItems.map((i) => ({
       bookId: i.id || i.bookId,
       qty: Math.max(1, Number(i.quantity || 1)),
-      price: Number(i.price || 0),
+      price: Number(i.price || 0)
     }));
 
     try {
+      //
       const res = await api.post('/api/coupon/validate', {
-        code: couponInput,
+        code: codeToApply, // Dùng codeToApply
         items: itemsPayload,
       });
-
       setCouponResult({
         valid: true,
         discount: res.discount,
@@ -344,34 +424,50 @@ export default function CartPage() {
         message: res.message || 'Áp dụng mã giảm giá thành công.',
         loading: false,
       });
-
+      setCouponInput(codeToApply); // Cập nhật ô input
     } catch (e) {
-      const msg = e?.response?.data?.message || e?.message || 'Mã không hợp lệ hoặc có lỗi.';
       setCouponResult({
         valid: false,
         discount: 0,
-        code: couponInput,
-        message: msg,
+        code: codeToApply,
+        message: e.message || 'Mã không hợp lệ hoặc có lỗi.',
         loading: false,
       });
+      setCouponInput(codeToApply); // Cập nhật ô input
     }
   };
-  // ===========================================
 
-  const toggle = (id) =>
+  // 5. THÊM: Hàm này được gọi khi nhấn nút "Áp dụng" từ ô input
+  const handleApplyCouponFromInput = () => {
+    handleApplyCoupon(couponInput);
+  };
+  
+  // 6. THÊM: Hàm này được gọi khi chọn từ Modal
+  const handleSelectCoupon = (code) => {
+    setShowCouponModal(false); // Đóng modal
+    handleApplyCoupon(code); // Tự động áp dụng
+  };
+
+  const toggle = (id) => {
     setSelected((s) => {
       const n = new Set(s);
       const key = String(id);
       n.has(key) ? n.delete(key) : n.add(key);
       return n;
     });
+  };
 
-  const toggleAll = () =>
+  const toggleAll = () => {
     setSelected((s) => {
       if (cart.items.length === 0) return new Set();
       if (s.size === cart.items.length) return new Set();
       return new Set(cart.items.map((x) => String(idOf(x))));
     });
+  };
+
+  const allSelected = useMemo(() => {
+    return cart.items.length > 0 && selected.size === cart.items.length;
+  }, [cart.items.length, selected.size]);
 
   const parseErrorMessage = (e) => {
     if (!e) return 'Có lỗi xảy ra';
@@ -439,6 +535,13 @@ export default function CartPage() {
     const selAddr = addresses.find(a => String(a.id) === String(addressId)) || null;
     if (!selAddr) return setOpenAddrModal(true);
 
+    for (const item of selectedItems) {
+      if (Number(item.stock || 0) < Number(item.quantity || 1)) {
+        setErrMsg(`Sản phẩm "${item.title}" đã hết hàng. Vui lòng kiểm tra lại.`);
+        return; // Dừng lại
+      }
+    }
+
     const items = selectedItems.map((i) => ({
       bookId: i.id || i.bookId,
       qty: Math.max(1, Number(i.quantity || 1)),
@@ -496,8 +599,17 @@ export default function CartPage() {
       if (e?.response?.data?.message?.toLowerCase?.().includes('coupon')) {
         setCouponResult(prev => ({ ...prev, valid: false, message: e.response.data.message }));
       }
-      setErrMsg(parseErrorMessage(e));
-    } finally { setLoading(false); }
+      
+      // Kiểm tra lỗi hết hàng từ backend (dự phòng)
+      const errorMsg = parseErrorMessage(e);
+      if (errorMsg.toLowerCase().includes('hết hàng') || errorMsg.toLowerCase().includes('stock')) {
+         setErrMsg(`Một sản phẩm trong giỏ đã hết hàng. Lỗi: ${errorMsg}`);
+      } else {
+         setErrMsg(errorMsg);
+      }
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   // ===== THAY ĐỔI 4: Tính toán lại tổng tiền =====
@@ -507,205 +619,230 @@ export default function CartPage() {
   // ===========================================
 
   return (
-    <div className="container px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Giỏ hàng</h1>
+    <>
+      <div className="container px-4 py-8">
+        <h1 className="text-3xl font-bold mb-6">Giỏ hàng</h1>
 
-      {errMsg && (
-        <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
-          {errMsg}
-        </div>
-      )}
+        {errMsg && (
+          <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-rose-700">
+            {errMsg}
+          </div>
+        )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 card p-4">
-          {cart.items.length === 0 ? (
-            <div className="text-gray-600">
-              Giỏ hàng trống.{` `}
-              <Link to="/categories" className="text-blue-600 underline">
-                Tiếp tục mua sắm
-              </Link>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between mb-3">
-                <button
-                  onClick={toggleAll}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border hover:bg-gray-50"
-                  title={cart.items.length > 0 && selected.size === cart.items.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
-                >
-                  {cart.items.length > 0 && selected.size === cart.items.length
-                    ? <CheckSquare className="w-4 h-4" />
-                    : <Square className="w-4 h-4" />}
-                  {cart.items.length > 0 && selected.size === cart.items.length ? 'Bỏ chọn tất cả' : selected.size > 0 ? 'Chọn phần còn lại' : 'Chọn tất cả'}
-                </button>
-
-                <div className="text-sm text-gray-600">
-                  {buyOnly ? (
-                    <>Chế độ <b>Mua ngay</b> · Đã chọn <b>{selected.size}</b> sản phẩm</>
-                  ) : (
-                    <>Đã chọn <b>{selected.size === 0 ? cart.items.length : selected.size}</b> / {cart.items.length} sản phẩm</>
-                  )}
-                </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 card p-4">
+            {cart.items.length === 0 ? (
+              <div className="text-gray-600">
+                Giỏ hàng trống.{` `}
+                <Link to="/categories" className="text-blue-600 underline">
+                  Tiếp tục mua sắm
+                </Link>
               </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <button
+                    onClick={toggleAll}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border hover:bg-gray-50"
+                    title={allSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                    disabled={buyOnly} // Vô hiệu hóa khi ở chế độ Mua ngay
+                  >
+                    {allSelected
+                      ? <CheckSquare className="w-4 h-4" />
+                      : <Square className="w-4 h-4" />}
+                    {allSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                  </button>
 
-              {cart.items.map((i) => {
-                const id = idOf(i);
-                const checked = buyOnly ? selected.has(String(id)) : (selected.size === 0 || selected.has(String(id)));
-                const lineTotal = Number(i.price || 0) * Number(i.quantity || 0);
-                return (
-                  <div key={id} className="flex items-center gap-3 py-4 border-b last:border-b-0">
-                    <button onClick={() => toggle(id)} className="p-2" title={checked ? 'Bỏ chọn' : 'Chọn sản phẩm này'}>
-                      {checked ? <CheckSquare className="w-5 h-5 text-purple-600" /> : <Square className="w-5 h-5" />}
-                    </button>
-
-                    <img
-                      src={i.image}
-                      alt={i.title}
-                      className="w-20 h-24 object-cover rounded border"
-                      onError={(e) => { e.currentTarget.src = '/placeholder.jpg'; }}
-                    />
-
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium line-clamp-2">{i.title}</div>
-                      <div className="text-purple-600 font-semibold">{toVND(i.price)}</div>
-                      <div className="text-xs text-gray-500">Thành tiền: {toVND(lineTotal)}</div>
-                    </div>
-
-                    <div className="flex items-center border rounded-lg">
-                      <button onClick={() => cart.update(id, Math.max(0, Number(i.quantity || 1) - 1))} className="p-2 hover:bg-gray-100" title="Giảm">
-                        <Minus className="w-4 h-4" />
-                      </button>
-                      <input
-                        type="number"
-                        min={1}
-                        value={Number(i.quantity || 1)}
-                        onChange={(e) => cart.update(id, Number(e.target.value || 1))}
-                        className="w-14 text-center outline-none"
-                      />
-                      <button onClick={() => cart.update(id, Number(i.quantity || 1) + 1)} className="p-2 hover:bg-gray-100" title="Tăng">
-                        <Plus className="w-4 h-4" />
-                      </button>
-                    </div>
-
-                    <button onClick={() => cart.remove(id)} className="p-2 hover:bg-gray-100 rounded-lg" title="Xoá khỏi giỏ">
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                  <div className="text-sm text-gray-600">
+                    {buyOnly ? (
+                      <>Chế độ <b>Mua ngay</b> · Đã chọn <b>{selected.size}</b> sản phẩm</>
+                    ) : (
+                      <>Đã chọn <b>{selected.size}</b> / {cart.items.length} sản phẩm</>
+                    )}
                   </div>
-                );
-              })}
-            </>
-          )}
+                </div>
+
+                {cart.items.map((i) => {
+                  const id = idOf(i);
+                  const checked = selected.has(String(id)); 
+                  const lineTotal = Number(i.price || 0) * Number(i.quantity || 0);
+                  return (
+                    <div key={id} className={`flex items-center gap-3 py-4 border-b last:border-b-0 ${buyOnly && !checked ? 'opacity-50' : ''}`}>
+                      <button 
+                        onClick={() => toggle(id)} 
+                        className="p-2" 
+                        title={checked ? 'Bỏ chọn' : 'Chọn sản phẩm này'}
+                        disabled={buyOnly}
+                      >
+                        {checked ? <CheckSquare className="w-5 h-5 text-purple-600" /> : <Square className="w-5 h-5" />}
+                      </button>
+
+                      <img
+                        src={getImageUrl(i.image, null)}
+                        alt={i.title}
+                        className="w-20 h-24 object-cover rounded border"
+                        onError={(e) => { e.currentTarget.src = getImageUrl(null); }}
+                      />
+
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium line-clamp-2">{i.title}</div>
+                        <div className="text-purple-600 font-semibold">{toVND(i.price)}</div>
+                        <div className="text-xs text-gray-500">Thành tiền: {toVND(lineTotal)}</div>
+                      </div>
+
+                      <div className="flex items-center border rounded-lg">
+                        <button onClick={() => cart.update(id, Math.max(0, Number(i.quantity || 1) - 1))} className="p-2 hover:bg-gray-100" title="Giảm">
+                          <Minus className="w-4 h-4" />
+                        </button>
+                        <input
+                          type="number"
+                          min={1}
+                          value={Number(i.quantity || 1)}
+                          onChange={(e) => cart.update(id, Number(e.target.value || 1))}
+                          className="w-14 text-center outline-none"
+                        />
+                        <button onClick={() => cart.update(id, Number(i.quantity || 1) + 1)} className="p-2 hover:bg-gray-100" title="Tăng">
+                          <Plus className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <button onClick={() => cart.remove(id)} className="p-2 hover:bg-gray-100 rounded-lg" title="Xoá khỏi giỏ">
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+
+          <aside className="card p-4 space-y-4">
+            {/* Mã giảm giá */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-medium">Mã giảm giá</label>
+                {publicCoupons.length > 0 && (
+                  <button 
+                    onClick={() => setShowCouponModal(true)}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    Xem mã có sẵn
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1"
+                  placeholder="Ví dụ: BOOK123"
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value)}
+                  disabled={couponResult.loading}
+                />
+                <button 
+                  onClick={handleApplyCouponFromInput} // Sửa hàm onClick
+                  disabled={couponResult.loading || !couponInput}
+                  className="btn-primary px-4"
+                >
+                  {couponResult.loading ? 'Đang...' : 'Áp dụng'}
+                </button>
+              </div>
+                
+              {couponResult.message && (
+                <div 
+                  className={`mt-2 text-xs inline-flex items-center gap-1 ${
+                    couponResult.valid ? 'text-green-600' : 'text-red-600'
+                  }`}
+                >
+                  {couponResult.valid ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                  {couponResult.message}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium mb-2">Địa chỉ giao hàng</label>
+                <button
+                  type="button"
+                  onClick={() => setOpenAddrModal(true)}
+                  className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs"
+                  title="Thêm địa chỉ mới"
+                >
+                  + Thêm địa chỉ mới
+                </button>
+              </div>
+
+              <select
+                className="input w-full"
+                value={addressId}
+                onChange={(e) => setAddressId(e.target.value)}
+                disabled={loadingAddrs}
+              >
+                <option value="">{loadingAddrs ? 'Đang tải…' : '-- Chọn địa chỉ --'}</option>
+                {addresses.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {(a.receiver || 'Người nhận')} · {a.phone || ''} · {a._line}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Thanh toán</label>
+              <select
+                className="input w-full"
+                value={payMethod}
+                onChange={(e) => setPayMethod(e.target.value)}
+              >
+                <option value="cod">Thanh toán khi nhận hàng (COD)</option>
+                <option value="bank">Chuyển khoản ngân hàng</option>
+              </select>
+            </div>
+
+            {/* Tính tiền */}
+            <div className="text-sm space-y-1 border-t pt-3">
+              <div className="flex justify-between"><span>Tổng giỏ (tạm tính)</span><b>{toVND(subtotalAll)}</b></div>
+              <div className="flex justify-between mt-3"><span>Đã chọn (tạm tính)</span><b>{toVND(subtotalSelected)}</b></div>
+              {couponResult.discount > 0 && (
+                <div className="flex justify-between text-green-600">
+                  <span>Giảm giá ({couponResult.code})</span>
+                  <b>- {toVND(couponResult.discount)}</b>
+                </div>
+              )}
+              <div className="flex justify-between"><span>Phí vận chuyển (ước tính)</span><b>{estimating ? 'Đang tính…' : toVND(shipFee)}</b></div>
+              <div className="flex justify-between text-lg pt-2">
+                <span>Tổng thanh toán (đã chọn)</span>
+                <b className="text-purple-600">{toVND(grandTotal)}</b>
+              </div>
+              <div className="text-gray-500 text-xs">
+                * Tổng cuối cùng sẽ do máy chủ xác nhận.<br/>
+                * Ở chế độ <b>Mua ngay</b>, hệ thống chỉ thanh toán sản phẩm đã chọn.
+              </div>
+            </div>
+
+            <button onClick={onCheckout} disabled={loading || cart.items.length === 0} className="btn-primary w-full">
+              {loading ? 'Đang đặt hàng…' : `Đặt hàng${buyOnly ? '' : selected.size === 0 ? ' (tất cả)' : ` (${selected.size})`}`}
+            </button>
+
+            <div className="text-center text-xs text-gray-500">
+              <Link to="/categories" className="text-blue-600 hover:underline">Tiếp tục mua sắm</Link>
+            </div>
+          </aside>
         </div>
 
-        <aside className="card p-4 space-y-4">
-          {/* Mã giảm giá */}
-          <div>
-            <label className="block text-sm font-medium mb-2">Mã giảm giá</label>
-            <div className="flex gap-2">
-              <input
-                className="input flex-1"
-                placeholder="Ví dụ: BOOK123"
-                value={couponInput}
-                onChange={(e) => setCouponInput(e.target.value)}
-                disabled={couponResult.loading}
-              />
-              <button 
-                onClick={handleApplyCoupon}
-                disabled={couponResult.loading || !couponInput}
-                className="btn-primary px-4"
-              >
-                {couponResult.loading ? 'Đang...' : 'Áp dụng'}
-              </button>
-            </div>
-            {couponResult.message && (
-              <div 
-                className={`mt-2 text-xs inline-flex items-center gap-1 ${
-                  couponResult.valid ? 'text-green-600' : 'text-red-600'
-                }`}
-              >
-                {couponResult.valid ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                {couponResult.message}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium mb-2">Địa chỉ giao hàng</label>
-              <button
-                type="button"
-                onClick={() => setOpenAddrModal(true)}
-                className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs"
-                title="Thêm địa chỉ mới"
-              >
-                + Thêm địa chỉ mới
-              </button>
-            </div>
-
-            <select
-              className="input w-full"
-              value={addressId}
-              onChange={(e) => setAddressId(e.target.value)}
-              disabled={loadingAddrs}
-            >
-              <option value="">{loadingAddrs ? 'Đang tải…' : '-- Chọn địa chỉ --'}</option>
-              {addresses.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {(a.receiver || 'Người nhận')} · {a.phone || ''} · {a._line}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">Thanh toán</label>
-            <select
-              className="input w-full"
-              value={payMethod}
-              onChange={(e) => setPayMethod(e.target.value)}
-            >
-              <option value="cod">Thanh toán khi nhận hàng (COD)</option>
-              <option value="bank">Chuyển khoản ngân hàng</option>
-            </select>
-          </div>
-
-          {/* Tính tiền */}
-          <div className="text-sm space-y-1 border-t pt-3">
-            <div className="flex justify-between"><span>Tổng giỏ (tạm tính)</span><b>{toVND(subtotalAll)}</b></div>
-            <div className="flex justify-between mt-3"><span>Đã chọn (tạm tính)</span><b>{toVND(subtotalSelected)}</b></div>
-            {couponResult.discount > 0 && (
-              <div className="flex justify-between text-green-600">
-                <span>Giảm giá ({couponResult.code})</span>
-                <b>- {toVND(couponResult.discount)}</b>
-              </div>
-            )}
-            <div className="flex justify-between"><span>Phí vận chuyển (ước tính)</span><b>{estimating ? 'Đang tính…' : toVND(shipFee)}</b></div>
-            <div className="flex justify-between text-lg pt-2">
-              <span>Tổng thanh toán (đã chọn)</span>
-              <b className="text-purple-600">{toVND(grandTotal)}</b>
-            </div>
-            <div className="text-gray-500 text-xs">
-              * Tổng cuối cùng sẽ do máy chủ xác nhận.<br/>
-              * Ở chế độ <b>Mua ngay</b>, hệ thống chỉ thanh toán sản phẩm đã chọn.
-            </div>
-          </div>
-
-          <button onClick={onCheckout} disabled={loading || cart.items.length === 0} className="btn-primary w-full">
-            {loading ? 'Đang đặt hàng…' : `Đặt hàng${buyOnly ? '' : selected.size === 0 ? ' (tất cả)' : ` (${selected.size})`}`}
-          </button>
-
-          <div className="text-center text-xs text-gray-500">
-            <Link to="/categories" className="text-blue-600 hover:underline">Tiếp tục mua sắm</Link>
-          </div>
-        </aside>
+        <AddressModal
+          open={openAddrModal}
+          onClose={() => setOpenAddrModal(false)}
+          onSave={saveNewAddress}
+          user={user}
+        />
       </div>
-
-      <AddressModal
-        open={openAddrModal}
-        onClose={() => setOpenAddrModal(false)}
-        onSave={saveNewAddress}
-        user={user}
+    <CouponModal
+        open={showCouponModal}
+        onClose={() => setShowCouponModal(false)}
+        coupons={publicCoupons}
+        onSelect={handleSelectCoupon}
       />
-    </div>
+    </>
   );
 }

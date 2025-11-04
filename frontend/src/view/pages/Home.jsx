@@ -42,29 +42,27 @@ const extractItems = (payload) => {
 
 // --- NEW: normalize a book object into the shape DealCard expects
 const normalizeBook = (b) => {
-  const priceValue   = toNumber(b?.price?.sale ?? b?.salePrice ?? b?.price);
-  const originalVal  = toNumber(b?.price?.value ?? b?.originalPrice ?? b?.price);
+  const originalPrice = toNumber(b?.price ?? 0); 
+  const discountPercent = toNumber(b?.discountPercent ?? b?.discount ?? 0); 
+  const hasDiscount = discountPercent > 0 && originalPrice > 0;
+  const price = toNumber(b?.salePrice ?? 0) > 0 
+    ? toNumber(b.salePrice) 
+    : (hasDiscount
+        ? Math.round(originalPrice * (1 - discountPercent / 100))
+        : originalPrice);
+
   const image =
     b?.images?.[0]?.url || b?.cover?.url || b?.coverUrl || b?.image || "/placeholder.png";
 
-  // try discount% from API if exists, else compute
-  const rawDiscount = toNumber(b?.discount);
-  const hasDisc = originalVal > 0 && priceValue > 0 && originalVal > priceValue;
-  const discount =
-    rawDiscount > 0
-      ? rawDiscount
-      : hasDisc
-      ? Math.round(((originalVal - priceValue) / originalVal) * 100)
-      : 0;
-
   return {
     id: b._id || b.id,
-    slug: b.slug || null, // THÊM DÒNG NÀY
+    slug: b.slug || null, 
     title: b.title || b.name || "—",
     image,
-    price: priceValue,
-    originalPrice: originalVal,
-    discount,
+    price: price,
+    originalPrice: originalPrice,
+    discount: discountPercent,
+    discountPercent: discountPercent,
   };
 };
 

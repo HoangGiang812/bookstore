@@ -27,8 +27,10 @@ import uploadRouter from './routes/uploads.js';
 import postRoutes from './routes/posts.js';
 import publicRoutes from './routes/public.js';
 import couponRoutes from './routes/coupon.js';
+import publicCouponRoutes from './routes/publicCoupons.js';
 import paymentRoutes from './routes/payments.js';
 import adminOrdersRouter from './routes/admin/orders.js';
+import promotionRouter from './routes/promotions.js';
 const app = express();
 
 // CORS: chỉnh origin theo ENV nếu cần
@@ -72,7 +74,9 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/public', publicRoutes);
 app.use('/api/payments', paymentRoutes); 
 app.use('/api/coupon', couponRoutes);
+app.use('/api/public-coupons', publicCouponRoutes);
 app.use('/api/admin/orders', adminOrdersRouter);
+app.use('/api/admin/promotions', promotionRouter);
 app.use(reviewRoutes);
 
 // 404 & Error handlers

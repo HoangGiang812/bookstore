@@ -53,11 +53,13 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
     return wishlist.some(item => (item._id || item.id) === id);
   }, [wishlist, id]);
 
-  const price = Number(book.price ?? 0);
-  const originalPrice = Number(book.originalPrice ?? 0);
-  const hasDiscount = originalPrice > price && originalPrice > 0;
-  const discount = hasDiscount ? Math.round(((originalPrice - price) / originalPrice) * 100) : 0;
-
+  const originalPrice = Number(book.price ?? 0); 
+  const discountPercent = Number(book.discountPercent ?? 0); 
+  const hasDiscount = discountPercent > 0 && originalPrice > 0;
+  const price = hasDiscount 
+    ? Math.round(originalPrice * (1 - discountPercent / 100))
+    : originalPrice;
+  const discount = discountPercent;
   const slug = book.slug;
   const bookUrl = slug ? `/books/${slug}` : id ? `/books/${id}` : "#";
 

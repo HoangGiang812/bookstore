@@ -101,20 +101,11 @@ export default function BookDetail() {
           authorSlug: firstAuthorSlug,
           authors,
           image: b.coverUrl || b.image,
-          price: Number(b.salePrice ?? b.price ?? 0),
-          originalPrice:
-            Number(
-              b.originalPrice ??
-                b.priceOriginal ??
-                (b.discountPercent > 0 && b.price
-                  ? Math.round(Number(b.price) / (1 - Number(b.discountPercent) / 100))
-                  : b.price)
-            ) || 0,
-          discountPercent:
-            b.discountPercent ??
-            (b.originalPrice && b.price && b.originalPrice > b.price
-              ? Math.round(((b.originalPrice - b.price) / b.originalPrice) * 100)
-              : 0),
+          originalPrice: Number(b.price ?? 0),
+          discountPercent: Number(b.discountPercent ?? 0),
+          price: (Number(b.discountPercent ?? 0) > 0)
+            ? Math.round(Number(b.price ?? 0) * (1 - Number(b.discountPercent ?? 0) / 100))
+            : Number(b.price ?? 0),
           ratingAvg: Number(b.ratingAvg ?? b.rating ?? 0),
           ratingCnt: Number(b.ratingCnt ?? b.ratingCount ?? b.reviewsCount ?? 0),
           stock: Number(b.stock ?? 0),

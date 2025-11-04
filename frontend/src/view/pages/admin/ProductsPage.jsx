@@ -282,7 +282,6 @@ export default function ProductsPage() {
       price: 0,
       discountPercent: 0,
       stock: 0,
-      status: 'available',
       categoryIds: [],
       isActive: true,
     };
@@ -324,7 +323,6 @@ export default function ProductsPage() {
       price: b.price || 0,
       discountPercent: b.discountPercent || 0,
       stock: b.stock || 0,
-      status: b.status || (Number(b.stock) > 0 ? 'available' : 'out-of-stock'),
       categoryIds: (b.categoryIds || b.categories || []).map(String),
       isActive: b.isActive !== false,
     });
@@ -371,7 +369,7 @@ export default function ProductsPage() {
       price: Number(draft.price || 0),
       discountPercent: Math.max(0, Number(draft.discountPercent || 0)),
       stock: Math.max(0, Number(draft.stock || 0)),
-      status: draft.status,
+      status: (Number(draft.stock || 0) > 0) ? 'available' : 'out-of-stock',
       categoryIds: expandWithAncestors(draft.categoryIds || []).filter(Boolean),
       isActive: !!draft.isActive,
     };
@@ -423,7 +421,7 @@ export default function ProductsPage() {
               <th className="p-2">Giảm giá (%)</th>
               <th className="p-2">Giá sau giảm</th>
               <th className="p-2">Trạng thái</th>
-              <th className="p-2">Kho hàng</th>
+              <th className="p-2">Số lượng</th>
               <th className="p-2 w-44"></th>
             </tr>
           </thead>
@@ -480,12 +478,6 @@ export default function ProductsPage() {
                 <Field label="Giá"><input type="number" min={0} className="input" value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) || 0 })} /></Field>
                 <Field label="Giảm giá (%)"><input type="number" min={0} max={100} className="input" value={draft.discountPercent} onChange={(e) => setDraft({ ...draft, discountPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} /></Field>
                 <Field label="Kho hàng"><input type="number" min={0} className="input" value={draft.stock} onChange={(e) => setDraft({ ...draft, stock: Number(e.target.value) || 0 })} /></Field>
-                <Field label="Trạng thái">
-                  <select className="input" value={draft.status} onChange={(e) => setDraft({ ...draft, status: e.target.value })}>
-                    <option value="available">Còn hàng</option>
-                    <option value="out-of-stock">Hết hàng</option>
-                  </select>
-                </Field>
               </div>
 
               {/* Cột 2: Ảnh (Dùng Tabs) và Danh mục */}
