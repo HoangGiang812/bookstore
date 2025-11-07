@@ -403,16 +403,20 @@ export default function Header() {
 
           {user ? (
             <div className="flex items-center gap-3">
-              {["admin", "staff"].includes(
-                String(user?.role || "").toLowerCase()
-              ) && (
-                <button
-                  onClick={() => nav("/admin")}
-                  className="px-3 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600"
-                >
-                  Quản trị
-                </button>
-              )}
+              {(() => {
+                // Lấy mảng 'roles' mới, nếu không có thì tạo mảng từ 'role' cũ
+                const userRoles = user?.roles || [user?.role]; 
+                const isAuthorized = userRoles.includes('admin') || userRoles.includes('staff');
+
+                return isAuthorized && (
+                  <button
+                    onClick={() => nav("/admin")}
+                    className="px-3 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600"
+                  >
+                    Quản trị
+                  </button>
+                );
+              })()}
 
               {/* Nút tài khoản + DROPDOWN (sửa: giữ mở khi rê chuột vào menu) */}
               <div

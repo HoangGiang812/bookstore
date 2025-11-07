@@ -6,6 +6,8 @@ import api from "../../../services/api";
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
+  const email = searchParams.get("email");
+
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
@@ -13,17 +15,22 @@ export default function ResetPassword() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!token || !email) {
+      alert("Link đặt lại mật khẩu không hợp lệ.");
+      return;
+    }
     if (password !== confirm) {
       alert("Mật khẩu nhập lại không khớp");
       return;
     }
     setLoading(true);
     try {
-      await api.post("/auth/reset", { token, newPassword: password });
+      await api.post("/auth/reset", { email, token, newPassword: password });
+      
       alert("Đổi mật khẩu thành công, hãy đăng nhập lại");
       nav("/login");
     } catch (err) {
-      alert(err.response?.data?.message || "Có lỗi xảy ra");
+      alert(err.message || "Có lỗi xảy ra"); 
     } finally {
       setLoading(false);
     }
@@ -59,7 +66,7 @@ export default function ResetPassword() {
             className="btn-primary w-full"
             disabled={loading}
           >
-            {loading ? "Đang xử lý..." : "Đặt lại mật khẩu"}
+            {loading ? "Đang xử lý..." : "Đặt lại mậtk hẩu"}
           </button>
         </form>
       </div>
