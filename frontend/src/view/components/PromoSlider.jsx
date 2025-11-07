@@ -1,103 +1,255 @@
+// src/view/components/PromoSlider.jsx
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 export default function PromoSlider({
-  items = [],            // cho phép rỗng
+  items = [],
   auto = 6000,
-  autoRange,             // [minMs, maxMs]
+  autoRange = [5000, 9000],
 }) {
-  const [i, setI] = useState(0);
+  const [index, setIndex] = useState(0);
   const [pause, setPause] = useState(false);
   const timerRef = useRef(null);
 
-  const len = Array.isArray(items) ? items.length : 0;
+  // Chuẩn hoá dữ liệu từ Home
+  const slides = Array.isArray(items)
+    ? items.filter(Boolean).map((s, idx) => {
+        const link = s.to ?? s.link ?? "#";
+        return {
+          id: s.id ?? s._id ?? `banner-${idx}`,
+          title: s.title ?? "",
+          subtitle: s.subtitle ?? "",
+          cta: s.cta ?? s.ctaText ?? "",
+          link,
+          imageUrl: s.imageUrl ?? s.image ?? s.bg ?? "",
+          active: s.active ?? true,
+        };
+      })
+    : [];
 
-  // Nếu không có slide thì ẩn hẳn section
+  // Chỉ lấy banner active và có ảnh
+  const activeSlides = slides.filter(
+    (s) => s.active !== false && !!s.imageUrl
+  );
+  const len = activeSlides.length;
+
   if (!len) return null;
 
-  // Auto next với khoảng thời gian linh hoạt
+  // Giữ index hợp lệ
   useEffect(() => {
-    if (pause || len <= 1) return; // không tự chạy nếu <2 slide
+    setIndex((prev) => (prev >= len ? 0 : prev));
+  }, [len]);
+
+  // Auto slide
+  useEffect(() => {
+    if (len <= 1 || pause) return;
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+
+    let [min, max] =
+      Array.isArray(autoRange) && autoRange.length === 2
+        ? autoRange
+        : [auto, auto];
+
+    min = Math.max(1000, Number(min) || 0);
+    max = Math.max(min, Number(max) || min);
 
     const delay =
-      Array.isArray(autoRange) && autoRange.length === 2
-        ? Math.floor(Math.random() * (autoRange[1] - autoRange[0] + 1)) + autoRange[0]
-        : auto || 6000;
+      min === max
+        ? min
+        : Math.floor(Math.random() * (max - min + 1)) + min;
 
     timerRef.current = setTimeout(() => {
-      setI((p) => (p + 1) % len);
+      setIndex((prev) => ((prev + 1) % len + len) % len);
     }, delay);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [i, pause, len, auto, autoRange]);
+  }, [len, pause, index, auto, autoRange]);
 
-  // Điều khiển bằng phím trái/phải (bảo vệ khi thiếu window)
+  // Điều khiển phím
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onKey = (e) => {
-      if (e.key === "ArrowLeft") setI((p) => (p - 1 + len) % len);
-      if (e.key === "ArrowRight") setI((p) => (p + 1) % len);
+    if (len <= 1 || typeof window === "undefined") return;
+
+    const handler = (e) => {
+      if (e.key === "ArrowLeft") {
+        setIndex((prev) => (prev - 1 + len) % len);
+      } else if (e.key === "ArrowRight") {
+        setIndex((prev) => (prev + 1) % len);
+      }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, [len]);
 
-  // Nếu số slide thay đổi và index vượt biên → quay về 0
-  useEffect(() => {
-    setI((p) => (p >= len ? 0 : p));
-  }, [len]);
+  const isExternal = (link) => /^https?:\/\//i.test(link);
 
-  const goto = (n) => setI(((n % len) + len) % len);
+  const SlideWrapper = ({ link, children }) => {
+    if (!link || link === "#") return <div className="h-full">{children}</div>;
+
+    if (isExternal(link)) {
+      return (
+        <a
+          href={link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block h-full"
+        >
+          {children}
+        </a>
+      );
+    }
+
+    return (
+      <Link to={link} className="block h-full">
+        {children}
+      </Link>
+    );
+  };
+
+  const goPrev = () => {
+    if (len <= 1) return;
+    setIndex((prev) => (prev - 1 + len) % len);
+  };
+
+  const goNext = () => {
+    if (len <= 1) return;
+    setIndex((prev) => (prev + 1) % len);
+  };
 
   return (
-    <section className="relative overflow-hidden">
+    <div
+      className="relative overflow-hidden m-0 p-0"
+      style={{ marginTop: 0, paddingTop: 0 }}
+    >
       <div
-        className="relative h-[360px] md:h-[520px]"
+        className="relative h-[220px] sm:h-[260px] md:h-[320px] lg:h-[380px]"
         onMouseEnter={() => setPause(true)}
         onMouseLeave={() => setPause(false)}
       >
-        {items.map((s, idx) => (
-          <div
-            key={s.id ?? idx}
-            className={`absolute inset-0 transition-opacity duration-700 ${idx === i ? "opacity-100" : "opacity-0"}`}
-            aria-hidden={idx !== i}
-          >
-            <div className={`w-full h-full bg-gradient-to-r ${s.bg || "from-purple-600 to-indigo-600"}`} />
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center text-white px-4">
-              <h2 className="text-4xl md:text-6xl font-extrabold">{s.title}</h2>
-              {s.subtitle && <p className="mt-4 text-xl md:text-2xl text-white/90">{s.subtitle}</p>}
-              {s.cta && (
-                <Link
-                  to={s.to || "#"}
-                  className="mt-8 inline-flex items-center px-8 py-3 rounded-full bg-white text-gray-900 font-semibold hover:shadow-xl"
-                >
-                  {s.cta}
-                </Link>
-              )}
+        {activeSlides.map((s, i) => {
+          const active = i === index;
+          return (
+            <div
+              key={s.id}
+              className={`absolute inset-0 transition-opacity duration-700 ${
+                active
+                  ? "opacity-100"
+                  : "opacity-0 pointer-events-none select-none"
+              }`}
+              aria-hidden={!active}
+            >
+              <SlideWrapper link={s.link}>
+                <div className="relative w-full h-full rounded-3xl overflow-hidden">
+                  {/* Ảnh banner */}
+                  <img
+                    src={s.imageUrl}
+                    alt={s.title || "Banner"}
+                    className="w-full h-full object-cover"
+                  />
+
+                  {/* Text overlay */}
+                  {(s.title || s.subtitle || s.cta) && (
+                    <div className="absolute inset-0 flex flex-col justify-center items-start px-6 md:px-12 text-white">
+                      {s.title && (
+                        <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold drop-shadow">
+                          {s.title}
+                        </h2>
+                      )}
+
+                      {s.subtitle && (
+                        <p className="mt-2 text-sm md:text-base lg:text-lg max-w-xl text-white/95 drop-shadow">
+                          {s.subtitle}
+                        </p>
+                      )}
+
+                      {s.cta && s.link && (
+                        <div
+                          className="
+                            mt-4
+                            inline-flex items-center justify-center
+                            px-8 py-3
+                            rounded-full
+                            bg-white/95 text-gray-900
+                            text-base font-semibold
+                            shadow-lg
+                            whitespace-nowrap
+                            self-start
+                          "
+                        >
+                          {s.cta}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </SlideWrapper>
             </div>
-          </div>
-        ))}
+          );
+        })}
+
+        {/* Nút điều hướng: vòng trắng nhỏ hơn + dấu ở giữa */}
+        {len > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={goPrev}
+              aria-label="Slide trước"
+              className="
+                absolute left-3 md:left-5 top-1/2 -translate-y-1/2
+                z-10
+                w-10 h-10 md:w-12 md:h-12
+                rounded-full
+                bg-white/90 hover:bg-white
+                text-gray-700 text-2xl md:text-3xl
+                flex items-center justify-center
+                leading-none
+                shadow-lg
+              "
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              onClick={goNext}
+              aria-label="Slide sau"
+              className="
+                absolute right-3 md:right-5 top-1/2 -translate-y-1/2
+                z-10
+                w-10 h-10 md:w-12 md:h-12
+                rounded-full
+                bg-white/90 hover:bg-white
+                text-gray-700 text-2xl md:text-3xl
+                flex items-center justify-center
+                leading-none
+                shadow-lg
+              "
+            >
+              ›
+            </button>
+          </>
+        )}
       </div>
 
-      {/* dots */}
+      {/* Dots */}
       {len > 1 && (
-        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-3">
-          {items.map((_, idx) => (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+          {activeSlides.map((s, i) => (
             <button
-              key={idx}
-              aria-label={`Slide ${idx + 1}`}
-              onClick={() => goto(idx)}
+              key={s.id || i}
+              onClick={() => setIndex(i)}
+              aria-label={`Slide ${i + 1}`}
               className={
-                idx === i
-                  ? "h-4 w-10 rounded-full bg-white/90 shadow border border-white/80"
-                  : "h-3 w-3 rounded-full bg-white/60 hover:bg-white"
+                i === index
+                  ? "h-3 w-8 rounded-full bg-white shadow border border-white/80"
+                  : "h-2.5 w-2.5 rounded-full bg-white/60 hover:bg-white"
               }
             />
           ))}
         </div>
       )}
-    </section>
+    </div>
   );
 }

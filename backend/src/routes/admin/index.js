@@ -113,6 +113,10 @@ r.post('/orders/:id/refund', ...guardAdmin, adminAudit, refundOrder);
 r.get('/rmas', ...guardStaff, RMACtrl.list);
 r.patch('/rmas/:id', ...guardStaff, adminAudit, RMACtrl.update);
 
+r.get('/banners', ...guardAdmin, BannerCtrl.list);
+r.post('/banners', ...guardAdmin, adminAudit, BannerCtrl.create);
+r.patch('/banners/:id', ...guardAdmin, adminAudit, BannerCtrl.update);
+r.delete('/banners/:id', ...guardAdmin, adminAudit, BannerCtrl.remove);
 /** ===== Posts (Blog) ===== */
 // Staff: Cho phép staff viết bài
 r.use('/posts', guardStaff, postsAdminRoutes);

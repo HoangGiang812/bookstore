@@ -288,7 +288,8 @@ export async function listPublishers(_req, res) {
 }
 
 export async function publicBanners(_req, res) {
-  res.json(await Banner.find({ active: true }).sort({ sort: 1 }).lean());
+  const items = await Banner.find({ active: true }).sort({ sort: 1 }).lean();
+  res.json(items);
 }
 export async function publicPage(req, res) {
   const page = await Page.findOne({ slug: req.params.slug, published: true }).lean();

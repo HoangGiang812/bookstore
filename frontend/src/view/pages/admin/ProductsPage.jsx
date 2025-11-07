@@ -477,7 +477,7 @@ export default function ProductsPage() {
                 <Field label="Tác giả"><input className="input" value={draft.author} onChange={(e) => setDraft({ ...draft, author: e.target.value })} /></Field>
                 <Field label="Giá"><input type="number" min={0} className="input" value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) || 0 })} /></Field>
                 <Field label="Giảm giá (%)"><input type="number" min={0} max={100} className="input" value={draft.discountPercent} onChange={(e) => setDraft({ ...draft, discountPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} /></Field>
-                <Field label="Kho hàng"><input type="number" min={0} className="input" value={draft.stock} onChange={(e) => setDraft({ ...draft, stock: Number(e.target.value) || 0 })} /></Field>
+                <Field label="Số lượng hàng còn trong kho"><input type="number" min={0} className="input" value={draft.stock} onChange={(e) => setDraft({ ...draft, stock: Number(e.target.value) || 0 })} /></Field>
               </div>
 
               {/* Cột 2: Ảnh (Dùng Tabs) và Danh mục */}

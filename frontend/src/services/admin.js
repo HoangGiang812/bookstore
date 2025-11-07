@@ -1,14 +1,17 @@
 // frontend/src/services/admin.js
-import api from './api';
+import api from "./api";
 
+/* =========================
+ * Overview
+ * ========================= */
 export const overview = (params) =>
-  api.get('/admin/overview', { params });
+  api.get("/admin/overview", { params });
 
 /* =========================
  * Books (Admin)
  * ========================= */
 export const listBooks = (params) =>
-  api.get('/admin/books', { params });
+  api.get("/admin/books", { params });
 
 export const getBook = (id) =>
   api.get(`/admin/books/${id}`);
@@ -16,32 +19,47 @@ export const getBook = (id) =>
 export const createBook = (payload) => {
   const body = {
     ...payload,
-    title: String(payload?.title || '').trim(),
-    authorName: String(payload?.authorName || '').trim(),
+    title: String(payload?.title || "").trim(),
+    authorName: String(payload?.authorName || "").trim(),
     price: Number(payload?.price || 0),
     discountPercent: Math.max(0, Number(payload?.discountPercent || 0)),
     stock: Math.max(0, Number(payload?.stock || 0)),
-    coverUrl: String(payload?.coverUrl || '').trim(),
+    coverUrl: String(payload?.coverUrl || "").trim(),
     status:
-      payload?.status === 'out-of-stock'
-        ? 'out-of-stock'
-        : (Number(payload?.stock) > 0 ? 'available' : 'out-of-stock'),
+      payload?.status === "out-of-stock"
+        ? "out-of-stock"
+        : Number(payload?.stock) > 0
+        ? "available"
+        : "out-of-stock",
   };
-  return api.post('/admin/books', body);
+  return api.post("/admin/books", body);
 };
 
 export const updateBook = (id, payload) => {
   const body = {
     ...payload,
-    ...(payload?.title !== undefined ? { title: String(payload.title).trim() } : {}),
-    ...(payload?.authorName !== undefined ? { authorName: String(payload.authorName).trim() } : {}),
-    ...(payload?.price !== undefined ? { price: Math.max(0, Number(payload.price)) } : {}),
+    ...(payload?.title !== undefined && {
+      title: String(payload.title).trim(),
+    }),
+    ...(payload?.authorName !== undefined && {
+      authorName: String(payload.authorName).trim(),
+    }),
+    ...(payload?.price !== undefined && {
+      price: Math.max(0, Number(payload.price)),
+    }),
     discountPercent: Math.max(0, Number(payload?.discountPercent || 0)),
-    ...(payload?.stock !== undefined ? { stock: Math.max(0, Number(payload.stock)) } : {}),
-    ...(payload?.coverUrl !== undefined ? { coverUrl: String(payload.coverUrl).trim() } : {}),
-    ...(payload?.status
-      ? { status: payload.status === 'out-of-stock' ? 'out-of-stock' : 'available' }
-      : {}),
+    ...(payload?.stock !== undefined && {
+      stock: Math.max(0, Number(payload.stock)),
+    }),
+    ...(payload?.coverUrl !== undefined && {
+      coverUrl: String(payload.coverUrl).trim(),
+    }),
+    ...(payload?.status && {
+      status:
+        payload.status === "out-of-stock"
+          ? "out-of-stock"
+          : "available",
+    }),
   };
   return api.patch(`/admin/books/${id}`, body);
 };
@@ -55,110 +73,128 @@ export const toggleBookFlags = (id, payload) =>
 export const stockIntake = async (bookId, qty, note) => {
   try {
     return await api.post(`/admin/books/${bookId}/intake`, { qty, note });
-  } catch (e) {
+  } catch {
     const b = await getBook(bookId);
     const current = Number(b?.stock || 0);
     const next = Math.max(0, current + Number(qty || 0));
-    return updateBook(bookId, { stock: next, lastStockNote: note });
+    return updateBook(bookId, {
+      stock: next,
+      lastStockNote: note,
+    });
   }
 };
 
 /* =========================
- * Categories (Public Admin UI → /api/categories)
+ * Categories
  * ========================= */
 export const categories = {
-  list: (params) => api.get('/categories', { params }),
-  create: (payload) => api.post('/categories', payload),
+  list: (params) => api.get("/categories", { params }),
+  create: (payload) => api.post("/categories", payload),
   get: (id) => api.get(`/categories/${id}`),
   update: (id, payload) => api.patch(`/categories/${id}`, payload),
   remove: (id) => api.delete(`/categories/${id}`),
 };
 
 /* =========================
- * Authors (Public endpoints)
+ * Authors
  * ========================= */
 export const authors = {
-  list: (params) => api.get('/authors', { params }),
+  list: (params) => api.get("/authors", { params }),
   search: (q, extra = {}) =>
-    api.get('/authors', { params: { q, ...(extra || {}) } }),
-  create: (payload) => api.post('/authors', payload),
+    api.get("/authors", { params: { q, ...(extra || {}) } }),
+  create: (payload) => api.post("/authors", payload),
   get: (id) => api.get(`/authors/id/${id}`),
-  getBySlug: (slug) => api.get(`/authors/${encodeURIComponent(slug)}`),
-  update: (idOrSlug, payload) => api.patch(`/authors/${idOrSlug}`, payload),
-  remove: (idOrSlug) => api.delete(`/authors/${idOrSlug}`),
+  getBySlug: (slug) =>
+    api.get(`/authors/${encodeURIComponent(slug)}`),
+  update: (idOrSlug, payload) =>
+    api.patch(`/authors/${idOrSlug}`, payload),
+  remove: (idOrSlug) =>
+    api.delete(`/authors/${idOrSlug}`),
 };
 
 /* =========================
  * Publishers (Admin)
  * ========================= */
 export const publishers = {
-  list: (params) => api.get('/admin/publishers', { params }),
-  create: (payload) => api.post('/admin/publishers', payload),
+  list: (params) => api.get("/admin/publishers", { params }),
+  create: (payload) => api.post("/admin/publishers", payload),
   get: (id) => api.get(`/admin/publishers/${id}`),
   update: (id, payload) => api.patch(`/admin/publishers/${id}`, payload),
   remove: (id) => api.delete(`/admin/publishers/${id}`),
 };
 
 /* =========================
- * Orders / RMA / Coupons / Users / Content / Settings
+ * Orders / RMA / Coupons / Users
  * ========================= */
 export const orders = {
-  // Danh sách
-  list: (params) => api.get('/admin/orders', { params }),
-
-  // Cập nhật trạng thái trực tiếp (cách cũ)
+  list: (params) => api.get("/admin/orders", { params }),
   updateStatus: (id, status, payload = {}) =>
     api.patch(`/admin/orders/${id}/status`, { status, ...payload }),
 
-  // Quy trình vận hành (admin dừng ở delivered)
   processing: (id) => api.post(`/admin/orders/${id}/processing`),
-  shipping:   (id, payload = {}) => api.post(`/admin/orders/${id}/shipping`, payload), // payload tuỳ chọn (để tương thích nếu sau này có)
-  delivered:  (id, payload = {}) => api.post(`/admin/orders/${id}/delivered`, payload),
+  shipping: (id, payload = {}) =>
+    api.post(`/admin/orders/${id}/shipping`, payload),
+  delivered: (id, payload = {}) =>
+    api.post(`/admin/orders/${id}/delivered`, payload),
 
-  // Duyệt/Từ chối yêu cầu huỷ
-  approveCancel: (id, note = '') => api.post(`/admin/orders/${id}/cancel/approve`, { note }),
-  rejectCancel:  (id, reason = '') => api.post(`/admin/orders/${id}/cancel/reject`, { reason }),
+  approveCancel: (id, note = "") =>
+    api.post(`/admin/orders/${id}/cancel/approve`, { note }),
+  rejectCancel: (id, reason = "") =>
+    api.post(`/admin/orders/${id}/cancel/reject`, { reason }),
 
-  // Ghi chú & hoàn tiền
   addNote: (id, text) => api.post(`/admin/orders/${id}/notes`, { text }),
-  refund:  (id, amount, reason = '') => api.post(`/admin/orders/${id}/refund`, { amount, reason }),
+  refund: (id, amount, reason = "") =>
+    api.post(`/admin/orders/${id}/refund`, { amount, reason }),
 
-  // Xoá đơn (BE chỉ cho xoá khi cancelled|completed)
   remove: (id) => api.delete(`/admin/orders/${id}`),
 };
 
 export const rma = {
-  list: (params) => api.get('/admin/rmas', { params }),
+  list: (params) => api.get("/admin/rmas", { params }),
   update: (id, payload) => api.patch(`/admin/rmas/${id}`, payload),
 };
 
 export const coupons = {
-  list: (params) => api.get('/admin/coupons', { params }),
-  create: (payload) => api.post('/admin/coupons', payload),
+  list: (params) => api.get("/admin/coupons", { params }),
+  create: (payload) => api.post("/admin/coupons", payload),
   update: (id, payload) => api.patch(`/admin/coupons/${id}`, payload),
   remove: (id) => api.delete(`/admin/coupons/${id}`),
 };
 
 export const users = {
-  list: (params) => api.get('/admin/users', { params }),
+  list: (params) => api.get("/admin/users", { params }),
   update: (id, payload) => api.patch(`/admin/users/${id}`, payload),
 };
 
+/* =========================
+ * Banners (Admin)
+ * ========================= */
 export const banners = {
-  list: () => api.get('/admin/banners'),
-  create: (payload) => api.post('/admin/banners', payload),
+  list: () => api.get("/admin/banners"),
+  create: (payload) => api.post("/admin/banners", payload),
   update: (id, payload) => api.patch(`/admin/banners/${id}`, payload),
   remove: (id) => api.delete(`/admin/banners/${id}`),
+
+  // Upload ảnh banner: tái dùng endpoint upload giống các chỗ khác
+  uploadImage: async (file) => {
+    const formData = new FormData();
+    formData.append("image", file); // phải khớp upload.single("image") ở BE
+    // KHÔNG set Content-Type thủ công, axios tự thêm boundary
+    return api.post("/upload", formData);
+  },
 };
 
+/* =========================
+ * Pages / Settings
+ * ========================= */
 export const pages = {
-  list: () => api.get('/admin/pages'),
-  create: (payload) => api.post('/admin/pages', payload),
+  list: () => api.get("/admin/pages"),
+  create: (payload) => api.post("/admin/pages", payload),
   update: (id, payload) => api.patch(`/admin/pages/${id}`, payload),
   remove: (id) => api.delete(`/admin/pages/${id}`),
 };
 
 export const settings = {
-  get: () => api.get('/admin/settings'),
-  update: (payload) => api.put('/admin/settings', payload),
+  get: () => api.get("/admin/settings"),
+  update: (payload) => api.put("/admin/settings", payload),
 };
