@@ -29,6 +29,7 @@ const toNumber = (v) =>
 const extractItems = (payload) => {
   if (!payload) return [];
   if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.books)) return payload.books;
   if (Array.isArray(payload.items)) return payload.items;
   if (Array.isArray(payload.docs)) return payload.docs;
   if (payload.data) {
@@ -105,9 +106,7 @@ export default function Home() {
 
   useEffect(() => {
     Promise.all([
-      api.get("/api/books", {
-        params: { group: "bestsellers", limit: 50 },
-      }),
+      api.get("/api/collections/sach-noi-bat"),
       api.get("/api/books", {
         params: { group: "new", limit: 50 },
       }),
@@ -117,9 +116,9 @@ export default function Home() {
       api.get("/api/authors", { params: { limit: 50 } }),
       api.get("/api/public/banners"),
     ])
-      .then(([b1, b2, b3, a, bannersRes]) => {
+      .then(([collectionRes, b2, b3, a, bannersRes]) => {
         // books & authors
-        setBests(extractItems(b1).map(normalizeBook));
+        setBests(extractItems(collectionRes).map(normalizeBook));
         setNews(extractItems(b2).map(normalizeBook));
         setDeals(extractItems(b3).map(normalizeBook));
         setAuthors(extractItems(a));
@@ -154,7 +153,11 @@ export default function Home() {
         setPromoItems(mapped);
       })
       .catch((err) => {
-        console.error("Load home data error:", err);
+        console.error("Lỗi tải dữ liệu trang chủ:", err);
+        if (String(err.message).includes('404')) {
+           console.warn("Không tìm thấy Bộ sưu tập. Hãy tạo một collection với slug 'sach-noi-bat' trong Admin.");
+           setBests([]);
+        }
       });
   }, []);
 
@@ -201,7 +204,7 @@ export default function Home() {
       {/* Best loved */}
       <section className="py-8 bg-white">
         <div className="mx-auto max-w-7xl px-4">
-          <SectionHeader title="Sách được yêu thích nhất" subtitle="" />
+          <SectionHeader title="Sách Nổi Bật" subtitle="Tuyển chọn bởi BookStore" />
           <div className="relative">
             <button
               onClick={() => setBestStart((p) => Math.max(0, p - 1))}

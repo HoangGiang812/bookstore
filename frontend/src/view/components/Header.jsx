@@ -18,6 +18,7 @@ import { searchSuggestions } from "../../services/catalog";
 import { useAuth } from "../../store/useAuth";
 import { useWishlist } from "../../store/useWishlist";
 import CategoryMegaMenu from "../components/CategoryMenu";
+import { getImageUrl } from "../../services/api";
 
 /* ================== utils ================== */
 const escapeReg = (s) => String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -426,23 +427,38 @@ export default function Header() {
               >
                 <button
                   ref={accRef}
-                  className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg"
+                  className="flex items-center gap-2 p-2 hover:bg-gray-100 rounded-lg transition-colors"
                   title="Tài khoản"
-                  onClick={() => (openAcc ? setOpenAcc(false) : setOpenAcc(true))}
+                  onClick={() => setOpenAcc(!openAcc)}
                 >
-                  {user?.avatar ? (
-                    <img
-                      src={user.avatar}
-                      alt={user.name || "user"}
-                      className="w-8 h-8 rounded-full object-cover"
-                      onError={(e) => { e.currentTarget.style.display = "none"; }}
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-[var(--brand)] text-white flex items-center justify-center">
-                      <UserIcon size={18} />
-                    </div>
-                  )}
-                  <span className="hidden md:block">Hi, {displayName}</span>
+                  {/* LOGIC HIỂN THỊ AVATAR MỚI */}
+                  <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-200 bg-gray-100 flex items-center justify-center shrink-0">
+                    {(user?.avatarUrl || user?.avatar) ? (
+                      <img
+                        // Thêm key để React biết ảnh đã đổi và render lại ngay lập tức
+                        key={user.avatarUrl || user.avatar} 
+                        src={getImageUrl(user.avatarUrl || user.avatar)}
+                        alt={user.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          // Khi ảnh lỗi, ẩn thẻ img này đi để lộ ra div cha (fallback)
+                          e.currentTarget.style.display = "none";
+                          // Hoặc set về ảnh mặc định: e.currentTarget.src = '/avatar.png';
+                        }}
+                      />
+                    ) : (
+                      <UserIcon size={18} className="text-gray-500" />
+                    )}
+                    
+                    {/* Fallback: Nếu img bị ẩn do lỗi, UserIcon này sẽ hiện ra (vì nằm cùng cấp trong div) */}
+                    {(user?.avatarUrl || user?.avatar) && (
+                      <UserIcon size={18} className="text-gray-400 absolute z-[-1]" />
+                    )}
+                  </div>
+                  
+                  <span className="hidden md:block font-medium text-sm text-gray-700">
+                    Hi, {displayName}
+                  </span>
                 </button>
 
                 {openAcc && (

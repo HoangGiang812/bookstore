@@ -169,12 +169,12 @@ export const refundOrder = async (req, res) => {
 
   // Ghi nhận transaction
   await Transaction.create({
-    order: o._id,
+    orderId: o._id,
+    userId: o.userId,
     type: 'refund',
     amount: amt,
     status: 'succeeded',
     reason: reason || '',
-    at: new Date(),
   });
 
   // Hoàn kho nếu đơn đã huỷ/hoàn (tuỳ chính sách)
@@ -299,11 +299,14 @@ export const setPaymentStatus = async (req, res) => {
   const o = await Order.findById(id);
   if (!o) return res.status(404).json({ message: 'order_not_found' });
 
-  // Không cho sửa nếu đã refunded (hãy dùng luồng refund)
   if (String(o.payment?.status).toLowerCase() === 'refunded') {
     return res.status(400).json({ message: 'payment_refunded_locked' });
   }
 
+  // Lấy trạng thái cũ
+  const oldStatus = String(o.payment?.status || 'unpaid').toLowerCase();
+
+  // Cập nhật Order
   o.payment = {
     ...(o.payment || {}),
     status: wanted,
@@ -312,7 +315,6 @@ export const setPaymentStatus = async (req, res) => {
   if (wanted === 'paid') {
     o.payment.capturedAt = o.payment.capturedAt || new Date();
   } else {
-    // clear capturedAt nếu chuyển về unpaid
     if (o.payment.capturedAt) delete o.payment.capturedAt;
   }
 
@@ -324,5 +326,30 @@ export const setPaymentStatus = async (req, res) => {
   );
 
   await o.save();
+
+  // ✅ LOGIC MỚI: TẠO TRANSACTION
+  try {
+    if (wanted === 'paid' && oldStatus !== 'paid') {
+      // Chỉ tạo transaction khi chuyển sang 'paid'
+      const totalGrand = Number(o.total?.grand) || 0;
+
+      await Transaction.create({
+        orderId: o._id,
+        userId: o.userId,
+        type: 'charge', // Ghi nhận là một khoản thu
+        amount: totalGrand,
+        method: o.payment?.method || 'cod',
+        status: 'succeeded',
+        reason: 'Admin marked as paid',
+        at: new Date(),
+      });
+    }
+    // (Chúng ta không tạo transaction khi 'unpaid' hoặc 'refund')
+    // (Refund đã được xử lý trong hàm 'refundOrder')
+  } catch (txError) {
+    console.error("Lỗi khi tạo transaction thanh toán:", txError);
+    // Không cần báo lỗi cho user, vì việc chính (cập nhật order) đã thành công
+  }
+
   return res.json(o.toObject());
 };

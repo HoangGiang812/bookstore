@@ -16,6 +16,8 @@ const publicUser = (u) => ({
   email: u.email,
   roles: u.roles || [u.role],
   emailVerified: !!u.emailVerified,
+  avatar: u.avatar,
+  avatarUrl: u.avatarUrl,
 });
 
 // ================= AUTH CƠ BẢN =================

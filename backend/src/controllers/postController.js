@@ -10,7 +10,7 @@ import { Post } from '../models/Post.js'; // Import Model mà bạn đã tạo
 export const listPosts = async (req, res) => {
   try {
     const posts = await Post.find({ status: 'published' })
-      .populate('author', 'name avatar')
+      .populate('author', 'name avatar avatarUrl')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -32,7 +32,7 @@ export const getPostBySlug = async (req, res) => {
       slug: req.params.slug,
       status: 'published',
     })
-      .populate('author', 'name avatar')
+      .populate('author', 'name avatar avatarUrl')
       .lean();
 
     if (post) {

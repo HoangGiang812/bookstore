@@ -24,6 +24,7 @@ import contactRoutes from './routes/contact.js';
 import adminRoutes from './routes/admin/index.js';
 import categoriesRouter from './routes/categories.js';
 import uploadRouter from './routes/uploads.js';
+import collectionRoutes from './routes/collections.js';
 import postRoutes from './routes/posts.js';
 import publicRoutes from './routes/public.js';
 import couponRoutes from './routes/coupon.js';
@@ -55,9 +56,10 @@ app.use(attachUserFromToken);
  *  PUBLIC ROUTES
  * ======================= */
 app.use('/api/auth', authRoutes);
-app.use('/api/books', bookRoutes);          // books.js có cả endpoints reviews/ratings
+app.use('/api/books', bookRoutes);
 app.use('/api/authors', authorRoutes);
 app.use('/api/categories', categoriesRouter);
+app.use('/api/collections', collectionRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 

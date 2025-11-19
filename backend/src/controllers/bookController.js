@@ -238,13 +238,45 @@ export async function suggestBooks(req, res) {
 export async function getBook(req, res) {
   const idOrSlug = req.params.idOrSlug || req.params.id;
   let book = null;
+
+  // SỬA LỖI TẠI ĐÂY:
+  // 1. Kiểm tra file models/Book.js xem tên thật là 'categories' hay 'categoryIds'.
+  // Dựa vào code listBooks của bạn, khả năng cao tên thật là 'categoryIds'.
+  // Chúng ta dùng 'strictPopulate: false' để tránh crash nếu field không tồn tại.
+  
+  const populateOpts = [
+    { path: 'categoryIds', select: 'name slug', strictPopulate: false }, // Thử populate field mới
+    { path: 'categories', select: 'name slug', strictPopulate: false },  // Thử populate field cũ
+    { path: 'authors', select: 'name slug', strictPopulate: false },
+    { path: 'publisherId', select: 'name', strictPopulate: false }
+  ];
+
   if (isObjectId(idOrSlug)) {
-    book = await Book.findById(idOrSlug).lean();
+    book = await Book.findById(idOrSlug)
+      .populate(populateOpts) 
+      .lean();
   }
+  
   if (!book) {
-    book = await Book.findOne({ slug: idOrSlug }).lean();
+    book = await Book.findOne({ slug: idOrSlug })
+      .populate(populateOpts) 
+      .lean();
   }
+
   if (!book) return res.status(404).json({ message: 'Not found' });
+
+  // --- CHUẨN HÓA DỮ LIỆU CHO FRONTEND ---
+  // Frontend đang chờ field 'categories', nhưng DB có thể trả về 'categoryIds'
+  if (!book.categories && book.categoryIds) {
+      book.categories = book.categoryIds;
+  }
+  
+  // Tương tự với authors (nếu schema lưu là authorIds)
+  if (!book.authors && book.authorIds) {
+      // Bạn cần thêm logic populate authorIds ở trên nếu schema dùng authorIds
+      book.authors = book.authorIds; 
+  }
+
   res.json(book);
 }
 

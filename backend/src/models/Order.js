@@ -111,7 +111,7 @@ const OrderSchema = new Schema({
   // === Trạng thái vận hành (đã thêm 'delivered')
   status: {
     type: String,
-    enum: ['pending','processing','shipping','delivered','completed','cancel_requested','cancelled'],
+    enum: ['pending','processing','shipping','delivered','completed','cancel_requested','cancelled', 'refunded'], 
     default: 'pending',
     index: true
   },

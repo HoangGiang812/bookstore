@@ -1,19 +1,27 @@
-// src/pages/admin/ProductsPage.jsx
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, Pencil, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
-import { listBooks, createBook, updateBook, deleteBook, categories as catApi } from '@/services/admin';
+import React, { useEffect, useMemo, useState } from 'react';
+import { 
+  Plus, Search, Pencil, Trash2, ChevronDown, ChevronRight, Star, X, 
+  BookOpen, User, Calendar, Ruler, Weight, FileText, Hash, Layers, Store 
+} from 'lucide-react';
+import { 
+  listBooks, createBook, updateBook, deleteBook, getBook, // ✅ Import getBook
+  categories as catApi, toggleFeatured, authors as authorApi 
+} from '@/services/admin';
 import ImageUploader from './ImageUploader.jsx';
 import { getImageUrl } from '@/services/api';
 
-const fmtVND = (n) =>
-  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(n || 0));
+const fmtVND = (n) => new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(n || 0));
 
-function Field({ label, children }) {
+/* --- UI Helpers --- */
+function Field({ label, icon: Icon, children }) {
   return (
-    <label className="block text-sm">
-      {label}
-      <div className="mt-1">{children}</div>
-    </label>
+    <div className="mb-4">
+      <label className="block text-sm font-semibold text-gray-700 mb-1.5 flex items-center gap-2">
+        {Icon && <Icon size={16} className="text-blue-600" />}
+        {label}
+      </label>
+      <div className="relative">{children}</div>
+    </div>
   );
 }
 
@@ -22,10 +30,8 @@ function TabButton({ label, active, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className={`px-4 py-2 text-sm font-medium -mb-px ${
-        active 
-          ? 'border-b-2 border-blue-600 text-blue-600' 
-          : 'text-gray-500 hover:text-gray-700'
+      className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+        active ? 'bg-blue-600 text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
       }`}
     >
       {label}
@@ -33,7 +39,7 @@ function TabButton({ label, active, onClick }) {
   );
 }
 
-/* ==== Helpers ==== */
+/* --- Category Tree --- */
 function buildTree(items) {
   const byId = new Map(items.map(i => [String(i._id), { ...i, children: [] }]));
   const roots = [];
@@ -43,24 +49,8 @@ function buildTree(items) {
       if (p) p.children.push(n); else roots.push(n);
     } else roots.push(n);
   }
-  const sortRec = (arr) => {
-    arr.sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0) || a.name.localeCompare(b.name));
-    arr.forEach(x => sortRec(x.children));
-  };
-  sortRec(roots);
-  return { roots, byId };
+  return { roots };
 }
-function buildParentMap(roots) {
-  const map = new Map();
-  const walk = (node, parentId=null) => {
-    const id = String(node._id);
-    map.set(id, parentId);
-    (node.children || []).forEach(c => walk(c, id));
-  };
-  roots.forEach(r => walk(r, null));
-  return map;
-}
-// map id -> parentId từ danh sách phẳng (dùng khi lưu để mở rộng cha/ông)
 function buildParentMapFromFlat(items) {
   const map = new Map();
   (items || []).forEach(c => {
@@ -68,231 +58,97 @@ function buildParentMapFromFlat(items) {
   });
   return map;
 }
-
-/* ================= CategoryTreeSelect (không nhảy lên đầu + xử lý cha–con) ================= */
 function CategoryTreeSelect({ roots, value, onChange }) {
-  // mặc định đóng hết
   const [openMap, setOpenMap] = useState({});
-  const parentMap = useMemo(() => buildParentMap(roots || []), [roots]);
   const selected = useMemo(() => new Set((value || []).map(String)), [value]);
-
-  // tra cứu node theo id để duyệt subtree nhanh
-  const nodeById = useMemo(() => {
-    const m = new Map();
-    const walk = (n) => { m.set(String(n._id), n); (n.children || []).forEach(walk); };
-    (roots || []).forEach(walk);
-    return m;
-  }, [roots]);
-
-  // Khung cuộn + helper giữ vị trí cuộn (double rAF để chắc chắn)
-  const boxRef = useRef(null);
-  const preserveScroll = (fn) => {
-    const box = boxRef.current;
-    const top = box ? box.scrollTop : 0;
-    fn();
-    // Đảm bảo DOM đã cập nhật rồi mới restore
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (boxRef.current) boxRef.current.scrollTop = top;
-      });
-    });
-  };
-
-  // khi có giá trị đang chọn -> tự mở ancestor (còn lại vẫn đóng)
-  useEffect(() => {
-    if (!Array.isArray(value) || value.length === 0) return;
-    setOpenMap(prev => {
-      const next = { ...prev };
-      const openAncestorsOf = (id) => {
-        let cur = parentMap.get(String(id));
-        while (cur != null) {
-          next[String(cur)] = true;
-          cur = parentMap.get(String(cur));
-        }
-      };
-      value.forEach(openAncestorsOf);
-      return next;
-    });
-  }, [value, parentMap]);
-
-  // tính trạng thái checked/indeterminate bottom-up
-  const states = useMemo(() => {
-    const cache = new Map();
-    const dfs = (node) => {
-      const id = String(node._id);
-      const children = node.children || [];
-      if (!children.length) {
-        const checked = selected.has(id);
-        const st = { checked, indeterminate: false };
-        cache.set(id, st);
-        return st;
-      }
-      const cs = children.map(dfs);
-      const all = cs.every(s => s.checked);
-      const some = cs.some(s => s.checked || s.indeterminate);
-      const checked = selected.has(id) || all;
-      const indeterminate = !checked && some;
-      const st = { checked, indeterminate };
-      cache.set(id, st);
-      return st;
-    };
-    (roots || []).forEach(dfs);
-    return cache;
-  }, [roots, selected]);
-
-  const collectIds = (node, out = []) => {
-    out.push(String(node._id));
-    for (const c of node.children || []) collectIds(c, out);
-    return out;
-  };
-
-  const getAncestors = (id) => {
-    const res = [];
-    let cur = parentMap.get(String(id));
-    while (cur != null) { res.push(String(cur)); cur = parentMap.get(cur); }
-    return res;
-  };
-
-  const subtreeHasAnySelected = (rootId, set) => {
-    const n = nodeById.get(String(rootId));
-    if (!n) return false;
-    const stack = [n];
-    while (stack.length) {
-      const x = stack.pop();
-      const xid = String(x._id);
-      if (set.has(xid)) return true;
-      (x.children || []).forEach(ch => stack.push(ch));
-    }
-    return false;
-  };
-
-  const toggleOpen = (id) => {
-    const k = String(id);
-    preserveScroll(() => setOpenMap(prev => ({ ...prev, [k]: !prev[k] })));
-  };
-
-  // ✔️ Thêm/giữ cha khi tick; gỡ cha nếu không còn con nào khi bỏ tick
-  const toggleCheck = (node) => {
-    preserveScroll(() => {
-      const ids = collectIds(node);
-      const next = new Set(selected);
-      const nodeId = String(node._id);
-      const selecting = ids.some((id) => !next.has(id));
-
-      if (selecting) {
-        // 1) thêm node + toàn bộ con
-        ids.forEach((id) => next.add(id));
-        // 2) thêm tất cả cha
-        getAncestors(nodeId).forEach((aid) => next.add(aid));
-      } else {
-        // 1) bỏ node + toàn bộ con
-        ids.forEach((id) => next.delete(id));
-        // 2) gỡ các cha KHÔNG còn con nào đang chọn
-        getAncestors(nodeId).forEach((anc) => {
-          const stillHas = subtreeHasAnySelected(anc, next);
-          if (!stillHas) next.delete(anc);
-        });
-      }
-      onChange(Array.from(next));
-    });
+  
+  const toggleCheck = (id) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onChange(Array.from(next));
   };
 
   const Row = ({ node, level }) => {
     const id = String(node._id);
-    const st = states.get(id) || { checked: false, indeterminate: false };
-    const hasChildren = (node.children || []).length > 0;
-    const opened = !!openMap[id];
-
+    const hasChildren = node.children?.length > 0;
+    const isOpen = openMap[id];
     return (
-      <li className="py-1">
-        <div
-          className="flex items-center"
-          style={{ paddingLeft: level * 16 }}  // dùng padding-left để hitbox chuẩn
-        >
-          {hasChildren ? (
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleOpen(id); }}
-              onMouseDown={(e) => e.preventDefault()} // chặn focus gây scroll
-              className="w-7 h-7 mr-1 grid place-items-center rounded hover:bg-gray-100 shrink-0"
-              title={opened ? 'Thu gọn' : 'Mở rộng'}
-              aria-label={opened ? 'Thu gọn' : 'Mở rộng'}
-            >
-              {opened ? <ChevronDown className="w-4 h-4 text-gray-600" /> : <ChevronRight className="w-4 h-4 text-gray-600" />}
-            </button>
-          ) : (
-            <span className="w-7 h-7 mr-1 shrink-0" />
-          )}
-
-          <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={st.checked}
-              ref={(el) => { if (el) el.indeterminate = st.indeterminate; }}
-              onMouseDown={(e) => e.preventDefault()} // chặn focus gây scroll
-              onChange={() => toggleCheck(node)}
-              className="rounded border-gray-300"
-            />
-            <span className="text-sm">{node.name}</span>
+      <li className="select-none">
+        <div className="flex items-center hover:bg-blue-50 py-1.5 rounded transition cursor-pointer" style={{ paddingLeft: level * 14 }}>
+          <button type="button" onClick={(e) => { e.preventDefault(); setOpenMap(p => ({...p, [id]: !p[id]})) }} className={`w-6 h-6 flex items-center justify-center text-gray-400 hover:text-blue-600 ${!hasChildren && 'invisible'}`}>
+            {isOpen ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+          </button>
+          <label className="flex items-center gap-2 cursor-pointer flex-1">
+            <input type="checkbox" checked={selected.has(id)} onChange={() => toggleCheck(id)} className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"/>
+            <span className={`text-sm ${selected.has(id) ? 'font-medium text-blue-700' : 'text-gray-700'}`}>{node.name}</span>
           </label>
         </div>
-
-        {hasChildren && opened && (
-          <ul className="ml-0">
-            {node.children.map((c) => (
-              <Row key={String(c._id)} node={c} level={level + 1} />
-            ))}
-          </ul>
-        )}
+        {hasChildren && isOpen && <ul className="ml-0 border-l border-gray-100 ml-2">{node.children.map(child => <Row key={child._id} node={child} level={level + 1} />)}</ul>}
       </li>
     );
   };
 
-  if (!roots?.length) return <div className="text-sm text-gray-500">Chưa có danh mục</div>;
-
   return (
-    <div
-      ref={boxRef}
-      className="rounded border p-2 max-h-[280px] overflow-auto bg-white"
-      style={{ overscrollBehavior: 'contain' }}  // tránh bật cuộn ra ngoài
-    >
-      <ul>
-        {roots.map((n) => <Row key={String(n._id)} node={n} level={0} />)}
-      </ul>
+    <div className="border rounded-lg p-2 max-h-[300px] overflow-y-auto bg-white shadow-inner">
+      <ul>{roots.map(node => <Row key={node._id} node={node} level={0} />)}</ul>
     </div>
   );
 }
 
-/* ================= Trang ProductsPage (giữ nguyên ngoài phần Tree) ================= */
+/* ================= PAGE MAIN ================= */
 export default function ProductsPage() {
   const [q, setQ] = useState('');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
-
   const [cats, setCats] = useState([]);
   const [editing, setEditing] = useState(null);
-  const [draft, setDraft] = useState(initDraft());
   const [imageTab, setImageTab] = useState('upload');
+  
+  // Dữ liệu gợi ý (Autocomplete)
+  const [suggestAuthors, setSuggestAuthors] = useState([]);
+  const [suggestPublishers, setSuggestPublishers] = useState([]);
+  const [suggestSizes, setSuggestSizes] = useState(['13 x 19 cm', '13 x 20.5 cm', '14 x 20.5 cm', '14.5 x 20.5 cm', '16 x 24 cm']);
 
-  function initDraft() {
-    return {
-      title: '',
-      author: '',
-      coverUrl: '',
-      price: 0,
-      discountPercent: 0,
-      stock: 0,
-      categoryIds: [],
-      isActive: true,
-    };
-  }
+  const initDraft = () => ({
+      title: '', author: '', coverUrl: '', price: 0, discountPercent: 0, stock: 0, categoryIds: [],
+      description: '', 
+      publisher: '', publicationYear: '', pages: '', format: 'Bìa mềm', size: '', weight: '',
+      isFeatured: false, isActive: true
+  });
+  const [draft, setDraft] = useState(initDraft());
 
+  // Load danh sách sách
   const load = async () => {
     setLoading(true);
-    const res = await listBooks({ q });
-    setRows(res.items || res);
-    setLoading(false);
+    try {
+      const res = await listBooks({ q });
+      const items = res.items || res;
+      setRows(items);
+      
+      // Trích xuất dữ liệu có sẵn để làm gợi ý
+      const authors = [...new Set(items.map(b => b.author).filter(Boolean))];
+      const pubs = [...new Set(items.map(b => b.publisher).filter(Boolean))];
+      const sizes = [...new Set(items.map(b => b.size).filter(Boolean))];
+
+      setSuggestAuthors(prev => [...new Set([...prev, ...authors])]);
+      setSuggestPublishers(pubs);
+      if (sizes.length) setSuggestSizes(prev => [...new Set([...prev, ...sizes])]);
+
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
+
+  // Load danh sách tác giả từ hệ thống để gợi ý thêm
+  useEffect(() => {
+    (async () => {
+        try {
+            const res = await authorApi.list({ limit: 1000 });
+            const systemAuthors = (res.items || []).map(a => a.name);
+            setSuggestAuthors(prev => [...new Set([...prev, ...systemAuthors])]);
+        } catch {}
+    })();
+  }, []);
 
   useEffect(() => { load(); }, [q]);
 
@@ -304,40 +160,11 @@ export default function ProductsPage() {
   }, []);
 
   const { roots } = useMemo(() => buildTree(cats), [cats]);
+  const flatParentMap = useMemo(() => buildParentMapFromFlat(cats), [cats]);
 
   const salePriceOf = (b) =>
     Math.round(Number(b.price || 0) * (1 - Math.max(0, Number(b.discountPercent || 0)) / 100));
 
-  const openNew = () => { 
-    setEditing({ new: true }); 
-    setDraft(initDraft());
-    setImageTab('upload');
-  };
-  const openEdit = (b) => {
-    setEditing(b);
-    const cover = b.coverUrl || '';
-    setDraft({
-      title: b.title || '',
-      author: b.author || b.authorName || '',
-      coverUrl: cover,
-      price: b.price || 0,
-      discountPercent: b.discountPercent || 0,
-      stock: b.stock || 0,
-      categoryIds: (b.categoryIds || b.categories || []).map(String),
-      isActive: b.isActive !== false,
-    });
-    
-    // Tự động chọn tab dựa trên link ảnh
-    if (cover.startsWith('http')) {
-      setImageTab('url');
-    } else {
-      setImageTab('upload');
-    }
-  };
-  const close = () => setEditing(null);
-
-  // ✓ Mở rộng danh mục với tổ tiên khi LƯU (đảm bảo BE nhận đủ cha/ông)
-  const flatParentMap = useMemo(() => buildParentMapFromFlat(cats), [cats]);
   const expandWithAncestors = (ids) => {
     const out = new Set();
     (ids || []).forEach((raw) => {
@@ -351,193 +178,345 @@ export default function ProductsPage() {
     return Array.from(out);
   };
 
-  const handleImageChange = (newImageUrl) => {
-    setDraft(prev => ({
-      ...prev,
-      coverUrl: newImageUrl, // Cập nhật ảnh vào state
-    }));
+  // --- Actions ---
+  const openNew = () => { 
+    setEditing({ new: true }); 
+    setDraft(initDraft());
+    setImageTab('upload');
+  };
+
+  // ✅ SỬA LỖI QUAN TRỌNG: Gọi API getBook để lấy full description
+  const openEdit = async (bookInList) => {
+    setEditing(bookInList); 
+    
+    // 1. Điền tạm dữ liệu từ list (để hiện ngay)
+    setDraft({
+        ...initDraft(),
+        title: bookInList.title || '',
+        author: bookInList.author || '',
+        coverUrl: bookInList.coverUrl || '',
+        price: bookInList.price || 0,
+        discountPercent: bookInList.discountPercent || 0,
+        stock: bookInList.stock || 0,
+        categoryIds: (bookInList.categoryIds || bookInList.categories || []).map(c => typeof c === 'object' ? c._id : String(c)),
+        isFeatured: !!(bookInList.featured || bookInList.isFeatured),
+        isActive: bookInList.isActive !== false,
+    });
+    setImageTab(bookInList.coverUrl?.startsWith('http') ? 'url' : 'upload');
+
+    // 2. Gọi API lấy chi tiết (Description, Publisher, etc...)
+    try {
+        const fullBook = await getBook(bookInList._id || bookInList.id);
+        setDraft(prev => ({
+            ...prev,
+            description: fullBook.description || '', // Lấy mô tả từ server
+            publisher: fullBook.publisher || '',
+            publicationYear: fullBook.publicationYear || '',
+            pages: fullBook.pages || '',
+            format: fullBook.format || 'Bìa mềm',
+            size: fullBook.size || '',
+            weight: fullBook.weight || '',
+        }));
+    } catch (e) {
+        console.error("Lỗi tải chi tiết sách:", e);
+    }
+  };
+
+  const handleImageChange = (url) => setDraft(prev => ({ ...prev, coverUrl: url }));
+
+  const handleToggleFeatured = async (book) => {
+    try {
+      const updatedBook = await toggleFeatured(book._id || book.id);
+      setRows(prev => prev.map(r => (r._id === updatedBook._id ? updatedBook : r))
+        .sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0))
+      );
+    } catch (err) {
+      alert("Lỗi: " + (err.message || "Không thể cập nhật"));
+    }
   };
 
   const save = async (e) => {
-    e?.preventDefault?.();
+    e?.preventDefault();
     if (!draft.title.trim()) return alert('Nhập tên sách');
 
     const payload = {
-      title: draft.title.trim(),
-      author: draft.author?.trim(),
-      coverUrl: draft.coverUrl?.trim(),
-      price: Number(draft.price || 0),
-      discountPercent: Math.max(0, Number(draft.discountPercent || 0)),
-      stock: Math.max(0, Number(draft.stock || 0)),
-      status: (Number(draft.stock || 0) > 0) ? 'available' : 'out-of-stock',
-      categoryIds: expandWithAncestors(draft.categoryIds || []).filter(Boolean),
-      isActive: !!draft.isActive,
+      ...draft,
+      price: Number(draft.price),
+      discountPercent: Number(draft.discountPercent),
+      stock: Number(draft.stock),
+      publicationYear: draft.publicationYear ? Number(draft.publicationYear) : undefined,
+      pages: draft.pages ? Number(draft.pages) : undefined,
+      weight: draft.weight ? Number(draft.weight) : undefined,
+      status: Number(draft.stock) > 0 ? 'available' : 'out-of-stock',
+      categoryIds: expandWithAncestors(draft.categoryIds).filter(Boolean),
+      featured: draft.isFeatured, 
+      description: draft.description // Đảm bảo gửi mô tả
     };
 
-    if (editing?.new) await createBook(payload);
-    else await updateBook(editing._id || editing.id, payload);
-
-    close();
-    load();
+    try {
+        if (editing?.new) await createBook(payload);
+        else await updateBook(editing._id || editing.id, payload);
+        setEditing(null);
+        load();
+    } catch(e) {
+        alert("Lỗi lưu sách: " + e.message);
+    }
   };
 
   const remove = async (row) => {
-    if (!confirm('Xoá sách này?')) return;
-    await deleteBook(row._id || row.id);
-    load();
+    if (window.confirm('Bạn có chắc muốn xóa sách này?')) {
+        await deleteBook(row._id || row.id);
+        load();
+    }
   };
 
-  const salePreview = Math.round(Number(draft.price || 0) * (1 - Math.max(0, Number(draft.discountPercent || 0)) / 100));
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold">Quản lý sản phẩm</h2>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+        <div>
+            <h2 className="text-2xl font-bold text-gray-800">Quản lý Sách</h2>
+            <p className="text-sm text-gray-500 mt-1">{rows.length} đầu sách trong kho</p>
+        </div>
+        <div className="flex items-center gap-3">
           <div className="relative">
-            <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
-              className="pl-7 pr-3 py-2 border rounded-lg text-sm"
-              placeholder="Tìm theo tên, tác giả..."
+              className="pl-9 pr-4 py-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent w-64"
+              placeholder="Tìm sách, tác giả..."
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          <button className="inline-flex items-center gap-2 bg-blue-600 text-white px-3 py-2 rounded-lg" onClick={openNew}>
-            <Plus className="w-4 h-4" /> Thêm
+          <button className="btn-primary flex items-center gap-2 px-5 py-2.5 rounded-xl shadow-md hover:shadow-lg transition" onClick={openNew}>
+            <Plus size={18} /> Thêm Sách
           </button>
         </div>
       </div>
 
-      {/* Bảng */}
-      <div className="rounded-xl border bg-white overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="p-2 text-left">Tên sách</th>
-              <th className="p-2">Tác giả</th>
-              <th className="p-2">Giá gốc</th>
-              <th className="p-2">Giảm giá (%)</th>
-              <th className="p-2">Giá sau giảm</th>
-              <th className="p-2">Trạng thái</th>
-              <th className="p-2">Số lượng</th>
-              <th className="p-2 w-44"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr><td colSpan={8} className="p-4 text-center text-gray-500">{loading ? 'Đang tải...' : 'Không có dữ liệu'}</td></tr>
-            ) : (
-              rows.map((b) => (
-                <tr key={b._id || b.id} className="border-t">
-                  <td className="p-2">
-                    <div className="flex items-center gap-2">
-                      {b.coverUrl ? (
-                        <img 
-                          src={getImageUrl(b.coverUrl, null)} // Dùng hàm mới
-                          alt={b.title} 
-                          className="w-8 h-10 object-cover rounded" 
-                          onError={(e) => (e.currentTarget.src = getImageUrl(null))} // Fallback
-                        />
-                      ) : null}
-                      <span className="font-medium">{b.title}</span>
-                    </div>
-                  </td>
-                  <td className="p-2 text-center">{b.author || b.authorName || '-'}</td>
-                  <td className="p-2 text-right">{fmtVND(b.price)}</td>
-                  <td className="p-2 text-center">{Number(b.discountPercent || 0)}</td>
-                  <td className="p-2 text-right font-semibold">{fmtVND(salePriceOf(b))}</td>
-                  <td className="p-2 text-center">{b.status === 'available' ? 'Còn hàng' : 'Hết hàng'}</td>
-                  <td className="p-2 text-center">{b.stock ?? 0}</td>
-                  <td className="p-2 text-right">
-                    <button className="btn-outline mr-2 inline-flex items-center gap-1 px-2 py-1 border rounded-lg" onClick={() => openEdit(b)}>
-                      <Pencil className="w-4 h-4" /> Sửa
-                    </button>
-                    <button className="btn-danger inline-flex items-center gap-1 px-2 py-1 border rounded-lg text-red-600" onClick={() => remove(b)}>
-                      <Trash2 className="w-4 h-4" /> Xoá
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      {/* Table */}
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50/80 text-gray-600 uppercase font-semibold border-b">
+              <tr>
+                <th className="p-4 w-14 text-center">Top</th>
+                <th className="p-4 text-left">Sản phẩm</th>
+                <th className="p-4 text-left">Tác giả</th>
+                <th className="p-4 text-right">Giá bán</th>
+                <th className="p-4 text-center">Kho</th>
+                <th className="p-4 text-right w-36">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.map((b) => {
+                 const isStar = !!(b.featured || b.isFeatured);
+                 return (
+                    <tr key={b._id || b.id} className={`group hover:bg-gray-50/80 transition ${isStar ? 'bg-yellow-50/40' : ''}`}>
+                        <td className="p-4 text-center">
+                            <button 
+                            onClick={() => handleToggleFeatured(b)} 
+                            className={`p-2 rounded-full transition ${isStar ? 'text-yellow-500 bg-yellow-100' : 'text-gray-300 hover:bg-gray-100 hover:text-yellow-400'}`}
+                            title="Đánh dấu nổi bật"
+                            >
+                            <Star size={18} fill={isStar ? 'currentColor' : 'none'} />
+                            </button>
+                        </td>
+                        <td className="p-4">
+                            <div className="flex items-start gap-4">
+                            <div className="w-12 h-16 bg-gray-100 rounded-lg overflow-hidden border flex-shrink-0 shadow-sm">
+                                {b.coverUrl ? <img src={getImageUrl(b.coverUrl)} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">No IMG</div>}
+                            </div>
+                            <div>
+                                <div className="font-semibold text-gray-900 line-clamp-2 leading-snug mb-1">{b.title}</div>
+                                {b.discountPercent > 0 && <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded-md border border-red-100">-{b.discountPercent}%</span>}
+                            </div>
+                            </div>
+                        </td>
+                        <td className="p-4 text-gray-600 font-medium">{b.author || '—'}</td>
+                        <td className="p-4 text-right">
+                            <div className="font-bold text-gray-900">{fmtVND(salePriceOf(b))}</div>
+                            {b.discountPercent > 0 && <div className="text-xs text-gray-400 line-through">{fmtVND(b.price)}</div>}
+                        </td>
+                        <td className="p-4 text-center">
+                            <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${b.stock > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                {b.stock}
+                            </span>
+                        </td>
+                        <td className="p-4 text-right">
+                            <div className="flex justify-end gap-2 opacity-80 group-hover:opacity-100 transition">
+                                <button className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition" onClick={() => openEdit(b)} title="Sửa"><Pencil size={18} /></button>
+                                <button className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition" onClick={() => remove(b)} title="Xóa"><Trash2 size={18} /></button>
+                            </div>
+                        </td>
+                    </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Modal */}
+      {/* ✅ MODAL FORM CHÍNH THỨC */}
       {editing && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={close}>
-          <form className="bg-white rounded-xl max-w-2xl w-full p-6" onClick={(e) => e.stopPropagation()} onSubmit={save}>
-            <div className="text-lg font-semibold mb-3">{editing?.new ? 'Thêm sách' : 'Sửa sách'}</div>
-            <div className="grid md:grid-cols-2 gap-4 max-h-[80vh] overflow-y-auto pr-2">
-              {/* Cột 1: Thông tin cơ bản */}
-              <div className="space-y-3">
-                <Field label="Tên sách"><input className="input" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} required /></Field>
-                <Field label="Tác giả"><input className="input" value={draft.author} onChange={(e) => setDraft({ ...draft, author: e.target.value })} /></Field>
-                <Field label="Giá"><input type="number" min={0} className="input" value={draft.price} onChange={(e) => setDraft({ ...draft, price: Number(e.target.value) || 0 })} /></Field>
-                <Field label="Giảm giá (%)"><input type="number" min={0} max={100} className="input" value={draft.discountPercent} onChange={(e) => setDraft({ ...draft, discountPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} /></Field>
-                <Field label="Số lượng hàng còn trong kho"><input type="number" min={0} className="input" value={draft.stock} onChange={(e) => setDraft({ ...draft, stock: Number(e.target.value) || 0 })} /></Field>
-              </div>
-
-              {/* Cột 2: Ảnh (Dùng Tabs) và Danh mục */}
-              <div className="space-y-3">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setEditing(null)}>
+          <form 
+             className="bg-white rounded-2xl w-full max-w-6xl h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200" 
+             onClick={(e) => e.stopPropagation()} 
+             onSubmit={save}
+          >
+            {/* Header */}
+            <div className="px-8 py-5 border-b flex justify-between items-center bg-white sticky top-0 z-10">
+               <div>
+                  <div className="text-xl font-bold text-gray-900">{editing?.new ? 'Thêm sách mới' : 'Chỉnh sửa sách'}</div>
+                  <p className="text-sm text-gray-500 mt-0.5">Điền đầy đủ thông tin bên dưới</p>
+               </div>
+               <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer select-none bg-yellow-50 px-4 py-2 rounded-xl border border-yellow-200 hover:bg-yellow-100 transition">
+                     <input type="checkbox" className="w-5 h-5 accent-yellow-500 rounded" checked={draft.isFeatured} onChange={e => setDraft({...draft, isFeatured: e.target.checked})} />
+                     <span className="text-sm font-bold text-yellow-800">Sách Nổi Bật</span>
+                  </label>
+                  <button type="button" onClick={() => setEditing(null)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition"><X size={24} /></button>
+               </div>
+            </div>
+            
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-8 bg-gray-50/50">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 
-                {/* --- BẮT ĐẦU KHỐI TABS ẢNH --- */}
-                <Field label="Ảnh bìa">
-                  <div className="flex border-b mb-2">
-                    <TabButton
-                      label="Tải lên (Local)"
-                      active={imageTab === 'upload'}
-                      onClick={() => setImageTab('upload')}
-                    />
-                    <TabButton
-                      label="Dán URL"
-                      active={imageTab === 'url'}
-                      onClick={() => setImageTab('url')}
-                    />
-                  </div>
-
-                  {/* Nội dung Tabs */}
-                  <div className="mt-4">
-                    {imageTab === 'upload' && (
-                      <div>
-                        <ImageUploader 
-                          value={draft.coverUrl}
-                          onChange={handleImageChange}
-                        />
-                        {/* Nếu ảnh là http, hiển thị cảnh báo */}
-                        {draft.coverUrl.startsWith('http') && (
-                          <p className="text-xs text-amber-700 mt-2">
-                            Bạn đang dùng ảnh URL. Tải lên để thay thế.
-                          </p>
-                        )}
+                {/* CỘT TRÁI (4/12): ẢNH, GIÁ, DANH MỤC */}
+                <div className="lg:col-span-4 space-y-6">
+                   {/* Ảnh Bìa */}
+                   <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                      <div className="flex justify-between mb-3 items-center">
+                        <label className="text-sm font-bold text-gray-800">Ảnh bìa</label>
+                        <div className="flex bg-gray-100 rounded-lg p-1">
+                           <TabButton label="Upload" active={imageTab==='upload'} onClick={() => setImageTab('upload')} />
+                           <TabButton label="URL" active={imageTab==='url'} onClick={() => setImageTab('url')} />
+                        </div>
                       </div>
-                    )}
-                    {imageTab === 'url' && (
-                      <div>
-                        <input 
-                          className="input w-full" 
-                          placeholder="https://example.com/image.jpg"
-                          value={draft.coverUrl.startsWith('http') ? draft.coverUrl : ''} 
-                          onChange={(e) => setDraft({ ...draft, coverUrl: e.target.value })} 
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Dán một link ảnh từ web khác.</p>
-                      </div>
-                    )}
-                  </div>
-                </Field>
-                {/* --- KẾT THÚC KHỐI TABS ẢNH --- */}
+                      {imageTab === 'upload' ? (
+                        <ImageUploader value={draft.coverUrl} onChange={handleImageChange} />
+                      ) : (
+                        <input className="input w-full" placeholder="https://..." value={draft.coverUrl} onChange={e => setDraft({...draft, coverUrl: e.target.value})} />
+                      )}
+                   </div>
 
-                <Field label="Danh mục (cha–con, chọn được nhiều)">
-                  <CategoryTreeSelect roots={roots} value={draft.categoryIds} onChange={(ids) => setDraft({ ...draft, categoryIds: ids })} />
-                </Field>
+                   {/* Giá & Kho */}
+                   <div className="bg-white p-5 rounded-2xl border shadow-sm space-y-4">
+                      <h3 className="text-sm font-bold text-gray-900 border-b pb-2 mb-2 flex items-center gap-2"><Hash size={16}/> Thiết lập bán hàng</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                         <Field label="Giá gốc (đ)">
+                            <input type="number" className="input w-full font-bold text-gray-800" value={draft.price} onChange={e => setDraft({...draft, price: e.target.value})} />
+                         </Field>
+                         <Field label="Giảm giá (%)">
+                            <input type="number" className="input w-full text-red-600 font-bold bg-red-50 border-red-200" value={draft.discountPercent} onChange={e => setDraft({...draft, discountPercent: e.target.value})} />
+                         </Field>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                         <Field label="Tồn kho">
+                            <input type="number" className="input w-full" value={draft.stock} onChange={e => setDraft({...draft, stock: e.target.value})} />
+                         </Field>
+                         <Field label="Trạng thái">
+                            <select className="input w-full" value={draft.isActive} onChange={e => setDraft({...draft, isActive: e.target.value === 'true'})}>
+                               <option value="true">Đang bán</option>
+                               <option value="false">Ẩn</option>
+                            </select>
+                         </Field>
+                      </div>
+                   </div>
+
+                   {/* DANH MỤC (Bên trái cho cân đối) */}
+                   <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                      <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><Layers size={16} className="text-blue-600"/> Danh mục sản phẩm</h3>
+                      <CategoryTreeSelect roots={roots} value={draft.categoryIds} onChange={(ids) => setDraft({ ...draft, categoryIds: ids })} />
+                   </div>
+                </div>
+
+                {/* CỘT PHẢI (8/12): THÔNG TIN CHI TIẾT */}
+                <div className="lg:col-span-8 space-y-6">
+                   <div className="bg-white p-6 rounded-2xl border shadow-sm space-y-5">
+                      <Field label="Tên sách" icon={BookOpen}>
+                         <input className="input w-full text-lg font-semibold" placeholder="Nhập tên sách..." value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} required />
+                      </Field>
+                      
+                      {/* ✅ GỢI Ý TÁC GIẢ */}
+                      <Field label="Tác giả" icon={User}>
+                          <input 
+                             className="input w-full" 
+                             list="author-list" // ID của datalist
+                             placeholder="Nhập hoặc chọn tên tác giả..." 
+                             value={draft.author} 
+                             onChange={e => setDraft({ ...draft, author: e.target.value })} 
+                          />
+                          <datalist id="author-list">
+                              {suggestAuthors.map((a, i) => <option key={i} value={a} />)}
+                          </datalist>
+                      </Field>
+
+                      {/* Box Thông tin chi tiết */}
+                      <div className="bg-blue-50/50 p-5 rounded-xl border border-blue-100">
+                           <h4 className="font-bold text-blue-800 text-sm mb-4 uppercase tracking-wide flex items-center gap-2"><Store size={16}/> Thông tin chi tiết</h4>
+                           <div className="grid grid-cols-2 gap-5">
+                              {/* Cột 1 */}
+                              <div>
+                                  <Field label="Nhà xuất bản" icon={Store}>
+                                      <input className="input w-full bg-white" list="pub-list" value={draft.publisher} onChange={e => setDraft({...draft, publisher: e.target.value})} placeholder="Chọn hoặc nhập..." />
+                                      <datalist id="pub-list">{suggestPublishers.map((p,i)=><option key={i} value={p}/>)}</datalist>
+                                  </Field>
+                                  
+                                  <Field label="Hình thức" icon={Layers}>
+                                     <select className="input w-full bg-white" value={draft.format} onChange={e => setDraft({...draft, format: e.target.value})}>
+                                        <option value="Bìa mềm">Bìa mềm</option>
+                                        <option value="Bìa cứng">Bìa cứng</option>
+                                        <option value="Bìa da">Bìa da</option>
+                                        <option value="Boxset">Boxset</option>
+                                     </select>
+                                  </Field>
+
+                                  <Field label="Khổ sách" icon={Ruler}>
+                                      <input className="input w-full bg-white" list="size-list" placeholder="VD: 13 x 20.5 cm" value={draft.size} onChange={e => setDraft({...draft, size: e.target.value})} />
+                                      <datalist id="size-list">
+                                          {suggestSizes.map((s,i)=><option key={i} value={s}/>)}
+                                      </datalist>
+                                  </Field>
+                              </div>
+
+                              {/* Cột 2 */}
+                              <div>
+                                  <Field label="Năm xuất bản" icon={Calendar}>
+                                      <input type="number" className="input w-full bg-white" placeholder="VD: 2024" value={draft.publicationYear} onChange={e => setDraft({...draft, publicationYear: e.target.value})} />
+                                  </Field>
+                                  <Field label="Số trang" icon={FileText}>
+                                      <input type="number" className="input w-full bg-white" placeholder="VD: 300" value={draft.pages} onChange={e => setDraft({...draft, pages: e.target.value})} />
+                                  </Field>
+                                  <Field label="Trọng lượng (g)" icon={Weight}>
+                                      <input type="number" className="input w-full bg-white" placeholder="VD: 500" value={draft.weight} onChange={e => setDraft({...draft, weight: e.target.value})} />
+                                  </Field>
+                              </div>
+                           </div>
+                      </div>
+
+                      {/* MÔ TẢ SÁCH */}
+                      <Field label="Mô tả chi tiết" icon={FileText}>
+                         <textarea 
+                            className="input w-full h-48 leading-relaxed font-normal" 
+                            value={draft.description || ''} 
+                            onChange={e => setDraft({...draft, description: e.target.value})} 
+                            placeholder="Nhập nội dung giới thiệu sách..." 
+                         />
+                      </Field>
+                   </div>
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-2 mt-4 justify-end">
-              <button type="button" className="px-3 py-2 border rounded-lg" onClick={close}>Huỷ</button>
-              <button type="submit" className="px-3 py-2 bg-blue-600 text-white rounded-lg">Lưu</button>
+            {/* Footer */}
+            <div className="px-8 py-5 border-t bg-white flex justify-end gap-3 sticky bottom-0 z-10">
+              <button type="button" className="px-6 py-3 border border-gray-300 rounded-xl hover:bg-gray-50 transition font-medium text-gray-700" onClick={() => setEditing(null)}>Hủy bỏ</button>
+              <button type="submit" className="px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-bold shadow-lg shadow-blue-200">
+                {editing?.new ? 'Tạo Sách Mới' : 'Lưu Thay Đổi'}
+              </button>
             </div>
           </form>
         </div>
@@ -545,5 +524,3 @@ export default function ProductsPage() {
     </div>
   );
 }
-
-

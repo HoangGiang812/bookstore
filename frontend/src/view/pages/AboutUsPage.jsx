@@ -46,17 +46,20 @@ export default function AboutUsPage() {
       try {
         setIsLoading(true);
         setErr("");
-        const data = await fetchPageBySlug("about"); // -> /api/public/pages/about
+        const data = await fetchPageBySlug("about");
         if (!alive) return;
         setPageData(data || null);
-        const title =
-          (data && (data.title || data.hero?.title)) || "Giới thiệu - BookStore";
-        document.title = title;
+        
+        // Đã sửa: Xóa logic lấy title động, chỉ đặt cứng là BookStore
+        document.title = "BookStore"; 
+        
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "Không thể tải trang");
         setPageData(null);
-        document.title = "Giới thiệu - BookStore";
+        
+        // Đã sửa: Đặt cứng là BookStore khi lỗi
+        document.title = "BookStore";
       } finally {
         if (alive) setIsLoading(false);
       }

@@ -1,6 +1,7 @@
 // backend/src/controllers/orderController.js
 import mongoose from 'mongoose';
-import Order from '../models/Order.js'; // default import
+import Order from '../models/Order.js';
+import { RMA } from '../models/RMA.js';
 import { Setting } from '../models/Setting.js';
 import { Book } from '../models/Book.js';
 import { applyCoupon, markCouponUsed } from '../utils/coupon.js';
@@ -197,6 +198,17 @@ export async function createOrder(req, res) {
       norm.push({ bookId: it.bookId, qty, price, title, categoryId });
     }
 
+    for (const it of norm) {
+      const book = byId.get(String(it.bookId));
+      if (!book) {
+        throw new Error(`Sản phẩm với ID ${it.bookId} không tồn tại.`);
+      }
+      
+      if (book.stock < it.qty) {
+        throw new Error(`Sản phẩm "${book.title}" chỉ còn ${book.stock} cuốn. Bạn đang đặt ${it.qty} cuốn.`);
+      }
+    }
+
     try {
       const tmpSubtotal = norm.reduce((s, it) => s + toInt(it.price) * toInt(it.qty), 0);
       shippingFee = calcShippingFeeByVNAddress(shippingAddress, {
@@ -295,8 +307,8 @@ export async function createOrder(req, res) {
 
     return res.status(201).json(toApiOrder(saved));
   } catch (e) {
-    if (String(e.message || '').startsWith('OUT_OF_STOCK:')) {
-      return res.status(409).json({ message: 'Out of stock', bookId: e.message.split(':')[1] });
+    if (String(e.message || '').includes('stock') || String(e.message || '').includes('cuốn')) {
+      return res.status(400).json({ message: e.message });
     }
     if (String(e.message || '').startsWith('BOOK_NOT_FOUND:')) {
       return res.status(404).json({ message: 'Book not found', bookId: e.message.split(':')[1] });
@@ -311,29 +323,65 @@ export async function createOrder(req, res) {
 export async function myOrders(req, res) {
   try {
     const { limit, skip } = parsePaging(req);
-    const filter = { userId: req.user._id };
+    const userId = req.user._id;
+
+    const filter = { userId: new mongoose.Types.ObjectId(userId) };
     if (req.query.status) {
-      // FE gửi: pending/processing/shipping/delivered/completed/cancel_requested/cancelled
+      // ... (giữ nguyên logic filter status cũ của bạn)
       const q = String(req.query.status).toLowerCase();
       const map = {
-        shipped: 'shipping',
-        delivered: 'delivered',
-        cancelled: 'cancelled',
-        canceled: 'cancelled',
-        pending: 'pending',
-        processing: 'processing',
-        completed: 'completed',
-        'cancel_requested': 'cancel_requested',
+        shipped: 'shipping', delivered: 'delivered', cancelled: 'cancelled',
+        canceled: 'cancelled', pending: 'pending', processing: 'processing',
+        completed: 'completed', 'cancel_requested': 'cancel_requested',
+        refunded: 'refunded'
       };
       filter.status = map[q] || q;
     }
 
-    const [items, total] = await Promise.all([
-      Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      Order.countDocuments(filter),
+    // ✅ SỬ DỤNG AGGREGATE ĐỂ LẤY RMA STATUS
+    const aggregationPipeline = [
+      { $match: filter },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      // --- JOIN VỚI BẢNG RMA ---
+      {
+        $lookup: {
+          from: 'rmas', // Tên collection trong DB
+          localField: '_id',
+          foreignField: 'orderId',
+          as: 'rmaHistory'
+        }
+      },
+      // --- LẤY TRẠNG THÁI MỚI NHẤT ---
+      {
+        $addFields: {
+          latestRMA: { $last: '$rmaHistory' }
+        }
+      },
+      {
+        $addFields: {
+          rmaStatus: '$latestRMA.status' // ✅ TRƯỜNG QUAN TRỌNG NHẤT
+        }
+      },
+      { $project: { rmaHistory: 0, latestRMA: 0 } } // Dọn dẹp
+    ];
+
+    const [items, totalResult] = await Promise.all([
+      Order.aggregate(aggregationPipeline),
+      Order.countDocuments({ userId: new mongoose.Types.ObjectId(userId) })
     ]);
 
-    return res.json({ items: items.map(toApiOrder), total, limit, skip });
+    // Map lại dữ liệu để frontend dùng được (giữ nguyên toApiOrder nhưng thêm rmaStatus)
+    const mappedItems = items.map(item => {
+      const apiOrder = toApiOrder(item);
+      // Gán thủ công rmaStatus vào kết quả trả về
+      apiOrder.rmaStatus = item.rmaStatus; 
+      return apiOrder;
+    });
+
+    return res.json({ items: mappedItems, total: totalResult, limit, skip });
+
   } catch (e) {
     console.error('myOrders error:', e);
     return res.status(500).json({ message: 'list_orders_failed' });

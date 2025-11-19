@@ -1,14 +1,14 @@
-// File: src/view/pages/PostDetailPage.jsx (ĐÃ NÂNG CẤP GIAO DIỆN)
+// File: src/view/pages/PostDetailPage.jsx
 
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchPostBySlug, fetchRelatedPosts } from '../../services/posts';
-import { ChevronLeft, Share2, Tag, Clock, Facebook, Twitter } from 'lucide-react';
+import { ChevronLeft, Share2, Tag, Clock, Facebook, Twitter, User } from 'lucide-react'; 
+import { getImageUrl } from '../../services/api';
 
-// ... (Component RelatedPostCard giữ nguyên) ...
 const RelatedPostCard = ({ post }) => (
     <Link to={`/articles/${post.slug}`} className="group block">
-      <img src={post.featuredImage} alt={post.title} className="w-full h-40 object-cover rounded-lg mb-4 group-hover:opacity-90 transition-opacity" />
+      <img src={getImageUrl(post.featuredImage)} alt={post.title} className="w-full h-40 object-cover rounded-lg mb-4 group-hover:opacity-90 transition-opacity" onError={(e) => e.currentTarget.src = '/placeholder.jpg'} />
       <h3 className="text-lg font-bold text-gray-800 group-hover:text-blue-600 transition-colors line-clamp-2">{post.title}</h3>
       <p className="text-sm text-gray-500 mt-1">{new Date(post.createdAt).toLocaleDateString('vi-VN')}</p>
     </Link>
@@ -21,7 +21,6 @@ const PostDetailPage = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // ... (Phần logic useEffect giữ nguyên) ...
     const loadData = async () => {
       if (!slug) return;
       setIsLoading(true);
@@ -54,14 +53,26 @@ const PostDetailPage = () => {
     <div className="bg-white py-12">
       <div className="container mx-auto px-4">
         <div className="max-w-4xl mx-auto">
-          {/* ... (Phần tiêu đề, tác giả, ảnh bìa giữ nguyên) ... */}
           <Link to="/articles" className="inline-flex items-center gap-2 text-gray-600 hover:text-blue-600 mb-8 font-semibold">
             <ChevronLeft size={20} /> Quay lại danh sách
           </Link>
           <h1 className="text-4xl lg:text-5xl font-extrabold mb-6 text-gray-900 leading-tight">{post.title}</h1>
           <div className="flex items-center flex-wrap gap-x-6 gap-y-3 text-sm text-gray-500 mb-8 border-y py-4">
             <div className="flex items-center gap-3">
-              <img src={post.author?.avatar || '/avatar.png'} alt={post.author?.name} className="w-10 h-10 rounded-full object-cover" />
+              
+              <div className="w-10 h-10 rounded-full bg-gray-100 overflow-hidden shrink-0 border border-gray-200 flex items-center justify-center text-gray-400 relative">
+                 {(post.author?.avatarUrl || post.author?.avatar) ? (
+                    <img 
+                      src={getImageUrl(post.author?.avatarUrl || post.author?.avatar)} 
+                      className="w-full h-full object-cover relative z-10" 
+                      alt="Author"
+                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                    />
+                 ) : <User size={20} />}
+                 <User size={20} className="absolute z-0" />
+              </div>
+              {/* ---------------------------------- */}
+
               <div>
                 <p className="font-semibold text-gray-700">{post.author?.name || 'Admin'}</p>
                 <p>{new Date(post.createdAt).toLocaleDateString('vi-VN', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
@@ -69,17 +80,14 @@ const PostDetailPage = () => {
             </div>
           </div>
           {post.featuredImage && (
-            <img src={post.featuredImage} alt={post.title} className="w-full rounded-xl mb-8 aspect-video object-cover" />
+            <img src={getImageUrl(post.featuredImage)} alt={post.title} className="w-full rounded-xl mb-8 aspect-video object-cover" onError={(e) => e.currentTarget.src = '/placeholder.jpg'} />
           )}
 
-          {/* === THAY ĐỔI DUY NHẤT VÀ QUAN TRỌNG NHẤT LÀ Ở ĐÂY === */}
-          {/* Thêm class "prose lg:prose-xl" để tự động làm đẹp nội dung */}
           <article 
             className="prose lg:prose-xl max-w-none mb-12" 
             dangerouslySetInnerHTML={{ __html: post.content }} 
           />
 
-          {/* ... (Phần tags, social share, related posts giữ nguyên) ... */}
           {post.tags && post.tags.length > 0 && (
             <div className="flex items-center flex-wrap gap-3 mb-8">
               <Tag className="w-5 h-5 text-gray-500" />

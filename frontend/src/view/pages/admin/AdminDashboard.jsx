@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { BookOpen, Users, ShoppingCart, CreditCard, BarChart3, Gift, Bell, Search, Menu, X, Home, LogOut, Tag } from 'lucide-react';
-import api from '@/services/api';
+import { BookOpen, Users, ShoppingCart, CreditCard, BarChart3, Gift, Bell, Search, Menu, X, Home, LogOut, Tag, LayoutGrid, RotateCcw } from 'lucide-react';
+import api, { getImageUrl } from '@/services/api';
 import { useAuth } from '@/store/useAuth';
 
 // Tabs cùng cấp
@@ -15,6 +15,9 @@ import ProductsPage from './ProductsPage';
 import AuthorsPage from './AuthorsPage';
 import PostsAdmin from './PostsAdmin';
 import CategoryPage from './CategoryPage.jsx';
+import CollectionsTab from './CollectionsTab.jsx';
+import PaymentsTab from './PaymentsTab.jsx';
+import RMAList from '../../admin/rma/RMAList.jsx';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -95,9 +98,9 @@ export default function AdminDashboard() {
       case 'overview':
         return <OverviewTab kpi={kpi} timeFilter={timeFilter} setTimeFilter={setTimeFilter} />;
       case 'products':
-        return <ProductsPage />;
+        return <ProductsPage searchTerm={globalSearchTerm} />;
       case 'categories':
-        return <CategoryPage />;
+        return <CategoryPage searchTerm={globalSearchTerm} />;
       case 'orders':
         return (
           <OrdersTab
@@ -105,18 +108,23 @@ export default function AdminDashboard() {
             orderStatuses={orderStatuses}
             reloadOrders={loadOrders}
             reloadKpis={loadDashboard}
+            searchTerm={globalSearchTerm}
           />
         );
       case 'authors':
-        return <AuthorsPage />;
+        return <AuthorsPage searchTerm={globalSearchTerm} />;
       case 'posts':
-        return <PostsAdmin />;
+        return <PostsAdmin searchTerm={globalSearchTerm} />;
       case 'payments':
-        return <div className="text-gray-600">Tham chiếu Orders + Dashboard (Transactions nếu có).</div>;
+        return <PaymentsTab searchTerm={globalSearchTerm} />;
+      case 'rma':
+        return <RMAList searchTerm={globalSearchTerm} />;
       case 'coupons':
-        return <CouponsTab />;
+        return <CouponsTab searchTerm={globalSearchTerm} />
       case 'users':
-        return <UsersTab />;
+        return <UsersTab searchTerm={globalSearchTerm} />;
+      case 'collections':
+        return <CollectionsTab searchTerm={globalSearchTerm} />
       case 'content':
         return <ContentTab />;
       default:
@@ -129,21 +137,25 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-white shadow-lg transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out lg:translate-x-0`}>
-        <div className="flex items-center justify-between h-16 px-6 bg-blue-600 text-white">
+      <div className={`fixed inset-y-0 left-0 z-40 w-64 bg-white shadow-lg transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out lg:translate-x-0 flex flex-col h-screen`}>
+        
+        <div className="flex items-center justify-between h-16 px-6 bg-blue-600 text-white flex-shrink-0">
           <h1 className="text-xl font-bold">BookStore Admin</h1>
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="lg:hidden"><X className="w-6 h-6" /></button>
         </div>
-        <nav className="mt-8">
+        
+        <nav className="mt-8 flex-1 overflow-y-auto pb-8">
           <div className="px-4 space-y-2">
             {[
               ['overview','Tổng quan',BarChart3, false],
               ['products','Quản lý sản phẩm',BookOpen, false],
               ['categories', 'Quản lý Danh mục', Tag, false],
+              ['collections','Bộ sưu tập', LayoutGrid, true],
               ['authors','Tác giả',Users, false],
               ['posts','Bài viết',BookOpen, false],
               ['orders','Quản lý đơn hàng',ShoppingCart, false],
               ['payments','Thanh toán & Hoàn tiền',CreditCard, false],
+              ['rma', 'Quản lý Đổi/Trả', RotateCcw, true],
               ['coupons','Khuyến mãi & Mã giảm giá',Gift, false],
               ['users','Người dùng & Phân quyền',Users, true], 
               ['content','Nội dung & Cấu hình',BookOpen, true],
@@ -178,7 +190,13 @@ export default function AdminDashboard() {
             <div className="hidden md:block flex-1 max-w-md mx-4">
               <div className="relative">
                 <Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" placeholder="Tìm kiếm..." className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                <input 
+                  type="text" 
+                  placeholder="Tìm kiếm..." 
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  value={globalSearchTerm}
+                  onChange={(e) => setGlobalSearchTerm(e.target.value)}
+                />
               </div>
             </div>
 
@@ -190,8 +208,20 @@ export default function AdminDashboard() {
                 <p className="text-sm font-medium">{user?.name || 'Admin'}</p>
                 <p className="text-xs text-gray-500">{(user?.roles || [user?.role]).filter(Boolean).join(', ')}</p>
               </div>
-              <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-medium">
-                {(user?.name || 'A')[0]}
+              <div className="w-8 h-8 rounded-full overflow-hidden border border-gray-300 bg-blue-500 flex items-center justify-center shrink-0">
+                {(user?.avatarUrl || user?.avatar) ? (
+                  <img
+                    src={getImageUrl(user.avatarUrl || user.avatar)}
+                    alt="Avatar"
+                    className="w-full h-full object-cover"
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }} // Nếu lỗi ảnh thì ẩn đi để hiện chữ cái bên dưới
+                  />
+                ) : null}
+                
+                {/* Fallback: Nếu không có ảnh hoặc ảnh lỗi, hiển thị chữ cái đầu */}
+                <span className={`text-white font-medium ${(user?.avatarUrl || user?.avatar) ? 'hidden' : 'block'}`}>
+                  {(user?.name || 'A')[0]}
+                </span>
               </div>
               <button onClick={handleLogout} className="ml-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-gray-100 hover:bg-gray-200" title="Đăng xuất">
                 <LogOut className="w-4 h-4" /> Đăng xuất

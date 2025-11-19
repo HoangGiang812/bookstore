@@ -4,18 +4,48 @@ import mongoose from 'mongoose';
 
 export async function requestRMA(req, res) {
   const orderId = req.params.id;
-  const { type, items, reason } = req.body;
+  // ✅ Lấy dữ liệu mới từ body
+  const { type, items, customerNote, images } = req.body; 
+  
   const order = await Order.findOne({ _id: orderId, userId: req.user._id });
   if (!order) return res.status(404).json({ message: 'Order not found' });
-  if (!['return', 'exchange', 'refund'].includes(type)) return res.status(400).json({ message: 'Invalid type' });
-  if (!Array.isArray(items) || !items.length) return res.status(400).json({ message: 'No items' });
+  
+  // Kiểm tra dữ liệu
+  if (!['return', 'exchange'].includes(type)) {
+    return res.status(400).json({ message: 'Invalid type' });
+  }
+  if (!Array.isArray(items) || !items.length) {
+    return res.status(400).json({ message: 'Items are required' });
+  }
+
+  // Kiểm tra xem đã yêu cầu chưa
+  const existingRMA = await RMA.findOne({ orderId: order._id, status: 'requested' });
+  if (existingRMA) {
+    return res.status(409).json({ message: 'Bạn đã gửi yêu cầu cho đơn này rồi.' });
+  }
+
+  // Lấy thông tin sách từ đơn hàng để điền vào RMA items
+  const rmaItems = items.map(reqItem => {
+    const orderItem = order.items.find(oi => 
+      String(oi.bookId) === String(reqItem.bookId)
+    );
+    return {
+      bookId: reqItem.bookId,
+      title: orderItem ? orderItem.title : 'Unknown Book',
+      qty: reqItem.qty,
+      reason: reqItem.reason
+    };
+  });
 
   const rma = await RMA.create({
     orderId: new mongoose.Types.ObjectId(orderId),
     userId: req.user._id,
     type,
     status: 'requested',
-    items: items.map(it => ({ bookId: it.bookId, qty: it.qty, reason: it.reason || reason }))
+    items: rmaItems,
+    images: images || [],
+    customerNote: customerNote
   });
+  
   res.status(201).json(rma);
 }

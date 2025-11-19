@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../store/useAuth';
 import { useUI } from '../../store/useUI';
-import api from '../../services/api';
+import api, { getImageUrl } from '../../services/api';
 
 /* ------------ Modal shell dùng chung ------------ */
 function ModalShell({open,title,onClose,children,footer}) {
@@ -184,27 +184,58 @@ export default function AccountInfo(){
   const onPickAvatar = ()=>fileRef.current?.click();
   const onFile = (e)=>{ const f=e.target.files?.[0]; if(!f) return; setAvatar(URL.createObjectURL(f)); setAvatarFile(f); };
 
-  const uploadAvatarIfNeeded = async ()=>{
-    if (!avatarFile) return user?.avatarUrl || user?.avatar || null;
-    try {
-      const form = new FormData(); form.append('avatar', avatarFile);
-      const res = await api.post('/users/me/avatar', form, { headers: { 'Content-Type':'multipart/form-data' } });
-      return res?.url || res?.avatarUrl || res?.data?.url || res?.data?.avatarUrl || null;
-    } catch {}
-    try {
-      const form = new FormData(); form.append('file', avatarFile);
-      const res = await api.post('/uploads', form, { headers: { 'Content-Type':'multipart/form-data' } });
-      return res?.url || res?.path || res?.data?.url || null;
-    } catch {}
-    return user?.avatarUrl || user?.avatar || null;
-  };
+  const uploadAvatarIfNeeded = async () => {
+  if (!avatarFile) {
+      return user?.avatarUrl || user?.avatar;
+  }
+
+  try {
+    const formData = new FormData();
+    formData.append('image', avatarFile);
+
+    const res = await api.post('/upload', formData); 
+    
+    console.log("👉 Server Upload Response:", res);
+    let rawPath = res.path || res.url || res.data?.path;
+    if (!rawPath && res.filename) {
+         rawPath = `/uploads/${res.filename}`; 
+    }
+
+    if (!rawPath) {
+        throw new Error("Server trả về thành công nhưng không có đường dẫn ảnh (path/filename).");
+    }
+    const cleanPath = rawPath.replace(/\\/g, '/');
+    const finalPath = (cleanPath.startsWith('http') || cleanPath.startsWith('/')) 
+                      ? cleanPath 
+                      : `/${cleanPath}`;
+
+    return finalPath;
+
+  } catch (error) {
+    console.error("❌ Lỗi upload avatar:", error);
+    throw new Error("Không thể tải ảnh lên server: " + error.message);
+  }
+};
 
   const saveProfile = async ()=>{
     try{
-      const avatarUrl = await uploadAvatarIfNeeded();
-      await api.patch('/users/me/profile',{ name, avatar: avatarUrl, avatarUrl, dob, gender, nation });
-      try { const me = await api.get('/users/me'); setUser?.(me); } catch {}
-      setAvatarFile(null);
+      const finalAvatarPath = await uploadAvatarIfNeeded();
+      
+      await api.patch('/users/me/profile', { 
+          name, 
+          avatar: finalAvatarPath,
+          avatarUrl: finalAvatarPath,
+          dob, 
+          gender, 
+          nation 
+      });
+
+      try { 
+          const me = await api.get('/users/me'); 
+          setUser?.(me); 
+      } catch {}
+
+      setAvatarFile(null); // Reset file đã chọn
       showToast?.({ type:'success', title:'Đã lưu thay đổi' });
     }catch(e){
       showToast?.({ type:'danger', title:'Lưu thay đổi thất bại', message:e?.message || 'Lỗi không xác định' });
@@ -260,7 +291,12 @@ export default function AccountInfo(){
             <div className="grid md:grid-cols-3 gap-6 items-start">
               <div className="flex flex-col items-center gap-3">
                 <div className="relative">
-                  <img src={avatar} onError={(e)=>{e.currentTarget.src='/avatar.png'}} className="w-32 h-32 rounded-full object-cover border shadow-sm" />
+                  <img 
+                    src={avatar?.startsWith('blob:') ? avatar : getImageUrl(avatar)} 
+                    onError={(e)=>{e.currentTarget.src='/avatar.png'}} 
+                    className="w-32 h-32 rounded-full object-cover border shadow-sm" 
+                  />
+                  
                   <button onClick={onPickAvatar} className="absolute -bottom-2 -right-2 px-2 py-1 rounded-full text-xs bg-gray-100 hover:bg-gray-200 border" title="Đổi ảnh">✎</button>
                 </div>
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile}/>

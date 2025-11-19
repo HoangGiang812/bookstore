@@ -99,7 +99,7 @@ export async function listBookReviews(req, res) {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .populate('userId', 'name email avatar')
+        .populate('userId', 'name email avatar avatarUrl')
         .lean(),
       Review.countDocuments({ bookId: toOid(bookId), isApproved: true }),
     ]);

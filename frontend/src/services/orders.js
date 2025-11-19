@@ -36,8 +36,8 @@ export const updateAddress = (id, addr) =>
 
 /* ===== RMA (đổi/trả) ===== */
 
-export const requestRMA = (id, reason) =>
-  api.post(`/api/orders/mine/${id}/rma`, { reason });
+export const requestRMA = (id, payload) =>
+  api.post(`/api/orders/mine/${id}/rma`, payload);
 
 /* ===== Theo dõi tiến trình & xác nhận ===== */
 

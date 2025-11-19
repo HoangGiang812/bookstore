@@ -198,3 +198,7 @@ export const settings = {
   get: () => api.get("/admin/settings"),
   update: (payload) => api.put("/admin/settings", payload),
 };
+
+export const toggleFeatured = (id) => {
+  return api.patch(`/admin/books/${id}/toggle-featured`);
+};

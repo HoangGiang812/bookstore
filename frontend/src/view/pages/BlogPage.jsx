@@ -1,32 +1,42 @@
-// File: src/view/pages/BlogPage.jsx (ĐÃ SỬA LỖI GIAO DIỆN LẦN CUỐI)
+// File: src/view/pages/BlogPage.jsx
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { fetchPosts } from '../../services/posts';
+import { getImageUrl } from '../../services/api'; 
+import { User } from 'lucide-react';
 
-// ===== COMPONENT POSTCARD ĐÃ ĐƯỢC SỬA LẠI =====
 const PostCard = ({ post }) => {
   return (
     <Link to={`/articles/${post.slug}`} className="group flex flex-col bg-white rounded-xl shadow-md hover:shadow-xl transition-shadow duration-300 overflow-hidden">
       <div className="aspect-w-16 aspect-h-9">
         <img 
-          src={post.featuredImage} 
+          src={getImageUrl(post.featuredImage)} 
           alt={post.title} 
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          onError={(e) => e.currentTarget.src = '/placeholder.jpg'}
         />
       </div>
       <div className="p-6 flex flex-col flex-1">
-        {/* <<< SỬA 1: Thêm chiều cao cố định (h-14) cho tiêu đề >>> */}
-        {/* Chiều cao này tương đương 2 dòng text-xl, đảm bảo các tiêu đề luôn chiếm không gian như nhau */}
         <h2 className="h-14 text-xl font-bold mb-2 text-gray-800 group-hover:text-blue-600 transition-colors duration-300 line-clamp-2">{post.title}</h2>
-        
-        {/* <<< SỬA 2: Thêm chiều cao cố định (h-[72px]) cho đoạn tóm tắt >>> */}
-        {/* Chiều cao này tương đương 3 dòng text-base, đảm bảo các đoạn tóm tắt luôn chiếm không gian như nhau */}
         <p className="h-[72px] text-gray-600 mb-4 line-clamp-3">{post.excerpt}</p>
         
         <div className="flex items-center gap-3 text-sm text-gray-500 border-t pt-4 mt-auto">
-          <img src={post.author?.avatar || '/avatar.png'} alt={post.author?.name} className="w-8 h-8 rounded-full object-cover" />
-          <span>{post.author?.name || 'Admin'}</span>
+          
+          <div className="w-8 h-8 rounded-full bg-gray-100 overflow-hidden shrink-0 border border-gray-200 flex items-center justify-center text-gray-400 relative">
+             {(post.author?.avatarUrl || post.author?.avatar) ? (
+                <img 
+                  src={getImageUrl(post.author?.avatarUrl || post.author?.avatar)} 
+                  className="w-full h-full object-cover relative z-10" 
+                  alt="Author"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+             ) : <User size={16} />}
+             
+             <User size={16} className="absolute z-0" />
+          </div>
+
+          <span className="font-medium">{post.author?.name || 'Admin'}</span>
           <span>•</span>
           <span>{new Date(post.createdAt).toLocaleDateString('vi-VN')}</span>
         </div>
@@ -35,7 +45,6 @@ const PostCard = ({ post }) => {
   );
 };
 
-// ===== PHẦN CÒN LẠI CỦA FILE GIỮ NGUYÊN =====
 const BlogPage = ({/* ...props... */}) => {
   const [allPosts, setAllPosts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -48,7 +57,7 @@ const BlogPage = ({/* ...props... */}) => {
   const currentPage = parseInt(searchParams.get('page') || '1', 10);
 
   useEffect(() => {
-    document.title = "Bài viết - BookStore";
+    document.title = "BookStore";
     const loadPosts = async () => {
       try {
         const data = await fetchPosts();

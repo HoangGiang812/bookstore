@@ -535,12 +535,12 @@ export default function CartPage() {
     const selAddr = addresses.find(a => String(a.id) === String(addressId)) || null;
     if (!selAddr) return setOpenAddrModal(true);
 
-    for (const item of selectedItems) {
-      if (Number(item.stock || 0) < Number(item.quantity || 1)) {
-        setErrMsg(`Sản phẩm "${item.title}" đã hết hàng. Vui lòng kiểm tra lại.`);
-        return; // Dừng lại
-      }
-    }
+    // for (const item of selectedItems) {
+    //   if (Number(item.stock || 0) < Number(item.quantity || 1)) {
+    //     setErrMsg(`Sản phẩm "${item.title}" đã hết hàng. Vui lòng kiểm tra lại.`);
+    //     return; // Dừng lại
+    //   }
+    // }
 
     const items = selectedItems.map((i) => ({
       bookId: i.id || i.bookId,
@@ -602,11 +602,7 @@ export default function CartPage() {
       
       // Kiểm tra lỗi hết hàng từ backend (dự phòng)
       const errorMsg = parseErrorMessage(e);
-      if (errorMsg.toLowerCase().includes('hết hàng') || errorMsg.toLowerCase().includes('stock')) {
-         setErrMsg(`Một sản phẩm trong giỏ đã hết hàng. Lỗi: ${errorMsg}`);
-      } else {
-         setErrMsg(errorMsg);
-      }
+      setErrMsg(errorMsg);
     } finally { 
       setLoading(false); 
     }
