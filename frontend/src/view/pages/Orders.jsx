@@ -10,7 +10,7 @@ import { useAuth } from '../../store/useAuth';
 import { useUI } from '../../store/useUI';
 import { getImageUrl } from '../../services/api.js';
 import ImageUploader from './admin/ImageUploader.jsx';
-import { X, Truck, Package, RefreshCcw, AlertTriangle, CheckCircle, CreditCard, Smartphone } from 'lucide-react';
+import { X, Truck, Package, RefreshCcw, AlertTriangle, CheckCircle, CreditCard, Smartphone, DollarSign, Clock, XCircle, RefreshCw, ChevronLeft, ChevronRight, Mail, Facebook, PhoneCall } from 'lucide-react';
 
 // --- HẰNG SỐ & HELPER ---
 const TABS = [
@@ -40,11 +40,38 @@ const getOrderStatusDisplay = (o) => {
     const s = o.status;
     const isPaid = o.payment?.status === 'paid' || o.paymentStatus === 'paid' || o.paid;
     const isCOD = o.payment?.method === 'cod';
+    const rma = o.rmaDetails || {};
+    const rmaStatus = rma.status || o.rmaStatus;
 
     if (s === 'refunded') return { label: 'Đã hoàn tiền', color: 'text-red-600', bg: 'bg-red-50' };
     if (s === 'returned') return { label: 'Đang hoàn về kho', color: 'text-orange-600', bg: 'bg-orange-50' };
+    if (rmaStatus === 'requested') 
+        return { badge: { text: 'Đang chờ duyệt đổi trả', color: 'bg-blue-50 text-blue-700', icon: Clock }, rmaActive: true };
+    
+    if (rmaStatus === 'approved' || rmaStatus === 'picking') 
+        return { badge: { text: 'Shipper đang đến lấy hàng', color: 'bg-indigo-50 text-indigo-700', icon: Truck }, rmaActive: true };
+    
+    if (rmaStatus === 'picked' || rmaStatus === 'returned_to_warehouse') 
+        return { badge: { text: 'Shop đã nhận lại hàng (Chờ hoàn tiền)', color: 'bg-orange-50 text-orange-700', icon: Package }, rmaActive: true };
+    
+    if (rmaStatus === 'processed' || rmaStatus === 'refunded' || o.status === 'refunded') 
+        return { badge: { text: 'Đổi trả hoàn tất', color: 'bg-green-50 text-green-700', icon: CheckCircle }, rmaActive: true };
+
+    if (rmaStatus === 'rejected') 
+        return { badge: { text: 'Yêu cầu đổi trả bị từ chối', color: 'bg-red-50 text-red-700', icon: X }, rmaActive: true };
     if (o.rmaStatus === 'approved') return { label: 'Yêu cầu Trả hàng được duyệt', color: 'text-blue-600', bg: 'bg-blue-50', showGuide: true };
     if (o.rmaStatus === 'requested') return { label: 'Đang chờ duyệt trả hàng', color: 'text-blue-600', bg: 'bg-blue-50' };
+    if (o.rmaStatus === 'picking') 
+      return { badge: { text: 'Shipper đang đến lấy hàng', color: 'bg-indigo-100 text-indigo-700', icon: Truck } };
+
+    if (o.rmaStatus === 'picked') 
+        return { badge: { text: 'Shipper đã lấy hàng xong', color: 'bg-blue-100 text-blue-700', icon: Package } };
+
+    if (o.rmaStatus === 'returned_to_warehouse') 
+        return { badge: { text: 'Đã về kho - Chờ hoàn tiền', color: 'bg-orange-100 text-orange-700', icon: RefreshCcw } };
+
+    if (o.rmaStatus === 'completed') // Hoặc processed
+        return { badge: { text: 'Đổi trả hoàn tất', color: 'bg-green-100 text-green-700', icon: CheckCircle } };
 
     switch (s) {
         case 'pending':
@@ -123,18 +150,32 @@ export default function Orders() {
   
   const [confirmModal, setConfirmModal] = useState(null);
   const [rmaBank, setRmaBank] = useState({ bankName: '', accountNo: '', accountName: '' });
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const LIMIT = 5;
 
   // --- LOAD DỮ LIỆU ---
   const reload = async () => {
-    if (!user?._id && !user?.id) return;
+    if (!user) return;
     setLoading(true);
     try {
-      const data = await listOrders({});
-      setItems(Array.isArray(data) ? data : (data?.items || []));
-    } finally { setLoading(false); }
+      // Gọi API với params skip & limit
+      const res = await listOrders({ 
+          skip: (page - 1) * LIMIT, 
+          limit: LIMIT 
+      });
+      
+      const list = res.items || res || [];
+      const total = res.total || list.length; // Backend phải trả về total
+      
+      setItems(list);
+      setTotalPages(Math.ceil(total / LIMIT));
+    } catch(e) { console.error(e); } 
+    finally { setLoading(false); }
   };
 
-  useEffect(() => { reload(); }, [user]);
+  // Thêm useEffect để load lại khi đổi trang
+  useEffect(() => { reload(); }, [user, page]);
 
   const view = useMemo(() => {
     if (tab === 'all') return items;
@@ -149,44 +190,82 @@ export default function Orders() {
   }, [items, tab]);
 
   // --- COMPONENT STEPPER ---
-  const OrderStepper = ({ status }) => {
-      const steps = [
+  const OrderStepper = ({ status, rmaStatus }) => {
+    // --- 1. CHẾ ĐỘ RMA (ĐỔI TRẢ) ---
+    if (rmaStatus && rmaStatus !== 'rejected') {
+        const steps = [
+            { key: 'requested', label: 'Đã yêu cầu' },
+            { key: 'approved', label: 'Shop duyệt' }, // Gộp picking vào đây
+            { key: 'returned', label: 'Đã trả hàng' }, // Gộp picked, returned_to_warehouse
+            { key: 'processed', label: 'Hoàn tiền' }
+        ];
+        
+        let activeIdx = 0;
+        if (['approved', 'picking'].includes(rmaStatus)) activeIdx = 1;
+        else if (['picked', 'returned_to_warehouse'].includes(rmaStatus)) activeIdx = 2;
+        else if (['processed', 'refunded'].includes(rmaStatus)) activeIdx = 3;
+
+        return (
+            <div className="w-full mb-6">
+                <div className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded w-fit mb-4 mx-2">
+                    🔄 Quy trình Đổi / Trả
+                </div>
+                <div className="flex items-center justify-between px-2 relative">
+                    {/* Line Background */}
+                    <div className="absolute top-[5px] left-4 right-4 h-[2px] bg-gray-200 -z-10"></div>
+                    
+                    {steps.map((step, idx) => {
+                        const isCompleted = idx <= activeIdx;
+                        return (
+                            <div key={step.key} className="flex-1 flex flex-col items-center relative">
+                                <div className={`w-3 h-3 rounded-full z-10 ${isCompleted ? 'bg-indigo-600 ring-2 ring-indigo-100' : 'bg-gray-300'}`}></div>
+                                <div className={`absolute top-5 left-1/2 -translate-x-1/2 w-24 text-center text-[10px] font-medium ${isCompleted ? 'text-indigo-700' : 'text-gray-400'}`}>
+                                    {step.label}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    }
+
+    // --- 2. CHẾ ĐỘ MUA HÀNG (BÌNH THƯỜNG - GIỮ NGUYÊN CODE CŨ) ---
+    const steps = [
         { key: 'pending', label: 'Đặt hàng' },
         { key: 'processing', label: 'Đang xử lý' },
         { key: 'shipping', label: 'Vận chuyển' },
         { key: 'delivered', label: 'Đã giao' },
         { key: 'completed', label: 'Hoàn tất' }
-      ];
-      
-      let currentStep = 0;
-      if (['confirmed', 'processing', 'ready_to_pick'].includes(status)) currentStep = 1;
-      else if (['shipping', 'delivery_failed'].includes(status)) currentStep = 2;
-      else if (['delivered'].includes(status)) currentStep = 3;
-      else if (['completed'].includes(status)) currentStep = 4;
-      else if (['cancelled', 'returned', 'refunded'].includes(status)) 
-        return <div className="text-red-500 font-bold bg-red-50 p-2 rounded text-center text-sm">Đơn hàng đã hủy / hoàn tiền</div>;
+    ];
+    let currentStep = 0;
+    if (['confirmed', 'processing', 'ready_to_pick'].includes(status)) currentStep = 1;
+    else if (['shipping', 'delivery_failed'].includes(status)) currentStep = 2;
+    else if (['delivered'].includes(status)) currentStep = 3;
+    else if (['completed'].includes(status)) currentStep = 4;
+    else if (['cancelled', 'returned', 'refunded', 'cancel_requested'].includes(status)) 
+      return <div className="text-red-500 font-bold bg-red-50 p-2 rounded text-center text-sm">Đơn hàng đã hủy / hoàn tiền</div>;
 
-      return (
+    return (
         <div className="flex items-center justify-between w-full mb-6 px-2">
           {steps.map((step, idx) => {
             const isCompleted = idx <= currentStep;
             const isLast = idx === steps.length - 1;
             return (
               <div key={step.key} className="flex-1 flex items-center relative">
-                <div className={`w-3 h-3 rounded-full z-10 transition-colors duration-300 ${isCompleted ? 'bg-green-600 ring-2 ring-green-100' : 'bg-gray-300'}`}></div>
-                <div className={`absolute top-8 left-1/2 -translate-x-1/2 w-24 text-center text-[10px] font-medium leading-tight ${isCompleted ? 'text-green-700' : 'text-gray-400'}`}>
+                <div className={`w-3 h-3 rounded-full z-10 ${isCompleted ? 'bg-green-600' : 'bg-gray-300'}`}></div>
+                <div className={`absolute top-5 left-1/2 -translate-x-1/2 text-[10px] whitespace-nowrap font-medium ${isCompleted ? 'text-green-700' : 'text-gray-400'}`}>
                   {step.label}
                 </div>
                 {!isLast && (
-                  <div className={`h-[2px] w-full absolute left-0 top-[5px] pl-3 transition-colors duration-300 ${idx < currentStep ? 'bg-green-600' : 'bg-gray-200'}`}></div>
+                  <div className={`h-[2px] w-full absolute left-0 top-[5px] pl-3 ${idx < currentStep ? 'bg-green-600' : 'bg-gray-200'}`}></div>
                 )}
               </div>
             );
           })}
         </div>
-      );
+    );
   };
-
   // --- ACTIONS HANDLERS ---
   
   // 1. Submit Xác nhận đã nhận hàng
@@ -363,7 +442,7 @@ export default function Orders() {
               return (
                 <div key={o._id || o.id} className="rounded-xl border border-gray-200 p-5 bg-white shadow-sm hover:shadow-md transition-all duration-200">
                   <div className="mb-5 pb-5 border-b border-dashed border-gray-200">
-                      <OrderStepper status={o.status} />
+                      <OrderStepper status={o.status} rmaStatus={o.rmaStatus || o.rmaDetails?.status} />
                   </div>
 
                   <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
@@ -383,6 +462,86 @@ export default function Orders() {
                       <div className="text-xs text-gray-400 font-medium uppercase mt-1 tracking-wider">{o.payment?.method || 'COD'}</div>
                     </div>
                   </div>
+
+                  {(() => {
+                      const rmaSt = o.rmaStatus || o.rmaDetails?.status;
+                      const adminNote = o.rmaDetails?.adminNote;
+
+                      // TRƯỜNG HỢP 1: TỪ CHỐI
+                      if (rmaSt === 'rejected') return (
+                        <div className="mb-6 p-5 bg-red-50 border border-red-100 rounded-2xl">
+                            <div className="flex gap-3 items-start text-red-800 mb-4">
+                                <XCircle size={24} className="mt-0.5 shrink-0"/>
+                                <div>
+                                    <h4 className="font-bold text-base">Yêu cầu đổi trả bị từ chối</h4>
+                                    <p className="text-sm mt-1 opacity-90">Lý do từ Shop: <span className="font-medium italic">"{adminNote || 'Không đủ điều kiện'}"</span></p>
+                                </div>
+                            </div>
+                              
+                            <div className="bg-white p-4 rounded-xl border border-red-100 shadow-sm">
+                                <p className="text-xs font-bold text-gray-500 uppercase mb-3">Bạn cần hỗ trợ thêm? Liên hệ ngay:</p>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                    <ContactBtn icon={PhoneCall} label="Hotline" sub="0937088329" color="text-green-600 bg-green-50" href="tel:0937088329"/>
+                                    <ContactBtn icon={Facebook} label="Facebook" sub="Chat ngay" color="text-blue-600 bg-blue-50" href="https://m.me/yourpage"/>
+                                    <ContactBtn icon={Smartphone} label="Zalo" sub="0937088329" color="text-blue-500 bg-blue-50" href="https://zalo.me/0937088329"/>
+                                    <ContactBtn icon={Mail} label="Email" sub="Gửi mail" color="text-gray-600 bg-gray-50" href="mailto:support@shop.com"/>
+                                </div>
+                            </div>
+                        </div>
+                      );
+
+                      // TRƯỜNG HỢP 2: ĐỒNG Ý (Cần đóng gói)
+                      if (['approved', 'picking'].includes(rmaSt)) return (
+                          <div className="mt-4 p-4 bg-indigo-50 border border-indigo-100 rounded-lg flex gap-3 items-start text-indigo-900">
+                              <Package size={20} className="mt-0.5 shrink-0"/>
+                              <div>
+                                  <strong>Yêu cầu đã được duyệt!</strong>
+                                  <ul className="list-disc pl-4 mt-2 text-sm space-y-1 opacity-90">
+                                      <li>Vui lòng đóng gói sản phẩm cẩn thận vào hộp.</li>
+                                      <li>Ghi mã đơn hàng <b>#{String(o.code).slice(-6)}</b> bên ngoài kiện hàng.</li>
+                                      <li>Shipper sẽ liên hệ bạn để lấy hàng trong 24h tới.</li>
+                                  </ul>
+                              </div>
+                          </div>
+                      );
+
+                      return null;
+                  })()}
+
+                  {(() => {
+                      const rma = o.rmaDetails || {}; // Lấy thông tin RMA
+                      const status = rma.status || o.rmaStatus; // Lấy trạng thái
+
+                      // NẾU CÓ TRẠNG THÁI RMA -> HIỂN THỊ THÔNG BÁO
+                      if (status === 'requested') return (
+                          <div className="mb-6 p-4 bg-blue-50 text-blue-800 text-sm rounded-xl flex gap-3 items-start border border-blue-100">
+                              <Clock size={18} className="mt-0.5 shrink-0"/>
+                              <div><strong>Yêu cầu đổi trả đã gửi!</strong><p className="opacity-90">Vui lòng chờ Shop xét duyệt.</p></div>
+                          </div>
+                      );
+                      if (['picked', 'returned_to_warehouse'].includes(status)) return (
+                          <div className="mb-6 p-4 bg-orange-50 text-orange-800 text-sm rounded-xl flex gap-3 items-start border border-orange-100">
+                              <Package size={18} className="mt-0.5 shrink-0"/>
+                              <div><strong>Shop đang kiểm tra hàng hoàn.</strong><p className="opacity-90">Tiền sẽ được hoàn lại sau khi kiểm tra xong.</p></div>
+                          </div>
+                      );
+                      if (['processed', 'refunded'].includes(status) || o.status === 'refunded') return (
+                          <div className="mb-6 p-4 bg-green-50 text-green-800 text-sm rounded-xl border border-green-100">
+                              <div className="flex gap-2 items-start">
+                                  <CheckCircle size={18} className="mt-0.5 shrink-0"/>
+                                  <div><strong>Hoàn tiền thành công!</strong><p>Giao dịch đã hoàn tất.</p></div>
+                              </div>
+                              {/* Ảnh UNC */}
+                              {rma.refundProof && (
+                                  <div className="mt-3 pt-3 border-t border-green-200">
+                                      <p className="text-xs font-bold mb-1">Bằng chứng chuyển khoản:</p>
+                                      <img src={getImageUrl(rma.refundProof)} className="h-24 rounded border cursor-pointer hover:scale-105 transition" onClick={()=>window.open(getImageUrl(rma.refundProof))}/>
+                                  </div>
+                              )}
+                          </div>
+                      );
+                      return null; // Không có RMA thì không hiện gì
+                  })()}
 
                   {display.showGuide && (
                     <div className="mb-4 p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-3 text-sm text-blue-800">
@@ -431,11 +590,80 @@ export default function Orders() {
                       </button>
                     )}
 
-                    {o.status === 'completed' && !o.rmaStatus && (
-                      <button onClick={() => openRMADialog(o)} className="btn border border-red-200 text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg font-medium">
-                         Đổi/Trả
-                      </button>
-                    )}
+                    {/* Nếu ĐÃ yêu cầu -> Hiện trạng thái text (Không cho bấm nữa) */}
+                    {(() => {
+                        // Chỉ hiện cho đơn đã hoàn thành (hoặc đang trong quy trình RMA)
+                        if (o.status !== 'completed' && !o.rmaStatus && !o.rmaDetails) return null;
+
+                        const rma = o.rmaDetails || {};
+                        const status = rma.status || o.rmaStatus;
+
+                        // CASE 1: Chưa từng yêu cầu -> Hiện nút Đổi Trả
+                        if (!status && o.status === 'completed') {
+                          const completedDate = new Date(o.completedAt || o.updatedAt);
+                          const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+                          const isExpired = completedDate < threeDaysAgo;
+                          if (isExpired) return null;
+                            return (
+                                <button onClick={() => openRMADialog(o)} className="btn border border-red-200 text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-transform active:scale-95">
+                                    <RefreshCcw size={16}/> Đổi / Trả
+                                </button>
+                            );
+                        }
+
+                        // CASE 2: Đang chờ duyệt
+                        if (status === 'requested') {
+                            return (
+                                <span className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg font-bold flex items-center gap-2 border border-blue-100 cursor-help" title="Đang chờ Shop phản hồi">
+                                    <Clock size={16}/> Đang chờ duyệt
+                                </span>
+                            );
+                        }
+
+                        // CASE 3: Đã duyệt (Hiện nút xem hướng dẫn)
+                        if (['approved', 'picking'].includes(status)) {
+                            return (
+                                <button className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-200 transition animate-pulse">
+                                    <Package size={16}/> Chờ lấy hàng
+                                </button>
+                            );
+                        }
+
+                        // CASE 4: Đã lấy hàng / Đang kiểm tra
+                        if (['picked', 'returned_to_warehouse'].includes(status)) {
+                            return (
+                                <span className="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg font-bold flex items-center gap-2 border border-orange-200">
+                                    <RefreshCw size={16} className="animate-spin-slow"/> Đang kiểm hàng
+                                </span>
+                            );
+                        }
+
+                        // CASE 5: Hoàn tất
+                        if (['processed', 'refunded'].includes(status) || o.status === 'refunded') {
+                            return (
+                                <span className="px-4 py-2 bg-green-100 text-green-700 rounded-lg font-bold flex items-center gap-2 border border-green-200">
+                                    <CheckCircle size={16}/> Hoàn tất
+                                </span>
+                            );
+                        }
+
+                        // CASE 6: Bị từ chối -> Cho phép gửi lại hoặc xem lý do
+                        if (status === 'rejected') {
+                            return (
+                                <div className="flex gap-2">
+                                    <span className="px-3 py-2 bg-gray-100 text-gray-500 rounded-lg font-medium text-xs flex items-center gap-1 border border-gray-200" title={rma.adminNote}>
+                                        <XCircle size={14}/> Bị từ chối
+                                    </span>
+                                    {/* Cho phép gửi lại yêu cầu */}
+                                    <button onClick={() => openRMADialog(o)} className="btn border border-red-200 text-red-600 hover:bg-red-50 px-3 py-2 rounded-lg font-bold text-sm flex items-center gap-1">
+                                        <RefreshCcw size={14}/> Gửi lại
+                                    </button>
+                                </div>
+                            );
+                        }
+
+                        return null;
+                    })()}
                     
                     <Link to="/categories" className="btn border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg font-medium">Mua lại</Link>
                   </div>
@@ -662,6 +890,60 @@ export default function Orders() {
           </div>
         </div>
       )}
+      {totalPages > 1 && (
+          <div className="flex justify-center mt-10 mb-8">
+              <nav className="inline-flex items-center gap-1 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-100">
+                  {/* Nút Trước */}
+                  <button 
+                      disabled={page === 1} 
+                      onClick={() => { setPage(p => p - 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }} // Thêm scroll
+                      className="w-10 h-10 flex items-center justify-center rounded-xl text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      title="Trang trước"
+                  >
+                      <ChevronLeft size={20} />
+                  </button>
+                  
+                  {/* Danh sách trang */}
+                  <div className="flex items-center gap-1 px-2 border-x border-gray-100">
+                      {[...Array(totalPages)].map((_, i) => {
+                          const pNum = i + 1;
+                          const isActive = page === pNum;
+                          
+                          // Logic hiển thị thông minh (nếu quá nhiều trang)
+                          // Chỉ hiện trang đầu, cuối, trang hiện tại và lân cận
+                          if (totalPages > 7 && Math.abs(page - pNum) > 2 && pNum !== 1 && pNum !== totalPages) {
+                              if (Math.abs(page - pNum) === 3) return <span key={i} className="text-gray-300 text-xs px-1">•••</span>;
+                              return null;
+                          }
+
+                          return (
+                              <button
+                                  key={i}
+                                  onClick={() => { setPage(pNum); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                                  className={`w-9 h-9 flex items-center justify-center rounded-xl text-sm font-bold transition-all duration-200 ${
+                                      isActive 
+                                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-200 scale-105' 
+                                      : 'text-gray-600 hover:bg-gray-100 hover:text-indigo-600'
+                                  }`}
+                              >
+                                  {pNum}
+                              </button>
+                          );
+                      })}
+                  </div>
+
+                  {/* Nút Sau */}
+                  <button 
+                      disabled={page === totalPages} 
+                      onClick={() => { setPage(p => p + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                      className="w-10 h-10 flex items-center justify-center rounded-xl text-gray-500 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      title="Trang sau"
+                  >
+                      <ChevronRight size={20} />
+                  </button>
+              </nav>
+          </div>
+      )}
 
       <style>{`
         .compact-uploader label { height: 120px !important; padding: 10px !important; background-color: #f9fafb; border-color: #e5e7eb; }
@@ -673,3 +955,11 @@ export default function Orders() {
     </div>
   );
 }
+// Component nút liên hệ nhỏ
+const ContactBtn = ({ icon: Icon, label, sub, color, href }) => (
+    <a href={href} target="_blank" rel="noreferrer" className={`flex flex-col items-center justify-center p-2 rounded-lg border border-transparent hover:border-gray-200 transition ${color} bg-opacity-50 hover:bg-opacity-100`}>
+        <Icon size={20} className="mb-1"/>
+        <span className="text-xs font-bold">{label}</span>
+        <span className="text-[10px] opacity-80">{sub}</span>
+    </a>
+);

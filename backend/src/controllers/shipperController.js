@@ -198,53 +198,48 @@ export const getMyRMATasks = async (req, res) => {
             returnShipperId: req.user._id,
             status: { $in: ['picking', 'picked'] }
         })
-        .populate('userId', 'name phone addresses') // Lấy cả danh sách địa chỉ của User
+        .populate('userId', 'name phone addresses') // Lấy thông tin khách
         .populate({
             path: 'orderId',
-            select: 'code items shippingAddress' // ✅ QUAN TRỌNG: Phải lấy shippingAddress từ đơn gốc
+            select: 'code items shippingAddress', // Lấy items để Shipper biết lấy sách gì
+            populate: { path: 'items.bookId', select: 'title image' } // Populate sâu vào sách
         })
         .sort({ updatedAt: -1 })
         .lean();
-        
         res.json(rmas);
     } catch (e) { res.status(500).json({ message: e.message }); }
 };
 
-// [MỚI 2] Shipper xác nhận: Đã lấy hàng từ khách
 export const pickupRMA = async (req, res) => {
     try {
-        const { id } = req.params;
-        const rma = await RMA.findOne({ _id: id, returnShipperId: req.user._id });
-        if (!rma) return res.status(404).json({ message: 'Không tìm thấy phiếu RMA' });
+        const rma = await RMA.findOne({ _id: req.params.id, returnShipperId: req.user._id });
+        if (!rma) return res.status(404).json({ message: 'RMA not found' });
 
-        if (rma.status !== 'picking') return res.status(400).json({ message: 'Trạng thái không hợp lệ' });
-
-        rma.status = 'picked'; // Đã lấy hàng
+        rma.status = 'picked';
         rma.pickedAt = new Date();
         await rma.save();
+        
+        // Đồng bộ trạng thái sang Order để khách thấy
+        await Order.findByIdAndUpdate(rma.orderId, { rmaStatus: 'picked' });
 
         res.json({ ok: 1, status: 'picked' });
     } catch (e) { res.status(500).json({ message: e.message }); }
 };
 
-// [MỚI 3] Shipper xác nhận: Đã trả hàng về kho (Hoàn tất nhiệm vụ shipper)
 export const dropoffRMA = async (req, res) => {
     try {
-        const { id } = req.params;
-        // console.log("Shipper dropoff RMA ID:", id); // Uncomment để debug
+        const rma = await RMA.findOne({ _id: req.params.id, returnShipperId: req.user._id });
+        if (!rma) return res.status(404).json({ message: 'RMA not found' });
 
-        const rma = await RMA.findOne({ _id: id, returnShipperId: req.user._id });
-        
-        if (!rma) {
-            return res.status(404).json({ message: 'RMA not found or unauthorized' });
-        }
-
-        rma.status = 'returned_to_warehouse'; 
+        rma.status = 'returned_to_warehouse';
         await rma.save();
-        
+
+        // Đồng bộ trạng thái sang Order
+        await Order.findByIdAndUpdate(rma.orderId, { rmaStatus: 'returned_to_warehouse' });
+
         res.json({ ok: 1, status: 'returned_to_warehouse' });
-    } catch (e) {
-        console.error("Dropoff Error:", e); // Xem lỗi gì trong Terminal server
-        res.status(500).json({ message: e.message });
+    } catch (e) { 
+        console.error("Dropoff Error:", e); // Log lỗi ra console server
+        res.status(500).json({ message: e.message }); 
     }
 };

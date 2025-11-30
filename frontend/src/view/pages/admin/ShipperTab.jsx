@@ -146,6 +146,17 @@ export default function ShipperTab() {
                       <MapPin size={16} className="text-gray-400 shrink-0 mt-0.5"/>
                       <p className="text-sm text-gray-600 font-medium leading-snug">{address}</p>
                   </div>
+                  {isRMA && item.items && (
+                    <div className="mt-3 pt-2 border-t border-gray-200">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Sản phẩm thu hồi:</p>
+                        {item.items.map((prod, idx) => (
+                            <div key={idx} className="flex justify-between text-xs text-gray-700 mb-1">
+                                <span className="truncate w-4/5">{prod.title}</span>
+                                <span className="font-bold">x{prod.qty}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
               </div>
 
               {/* Actions */}

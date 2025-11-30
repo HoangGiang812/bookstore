@@ -21,7 +21,7 @@ export const listRMA = async (req, res) => {
            select: 'title price'
         }
       })
-      .populate('userId', 'name email')
+      .populate('userId', 'name email phone avatarUrl avatar')
       .sort({ createdAt: -1 })
       .lean();
       

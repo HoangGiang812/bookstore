@@ -6,6 +6,7 @@ import { applyCoupon, markCouponUsed } from '../utils/coupon.js';
 import { sendMail, orderConfirmationTemplate } from '../utils/email.js';
 import { parsePaging } from '../utils/pagination.js';
 import { calcShippingFeeByVNAddress } from '../utils/shippingVN.js';
+import { RMA } from '../models/RMA.js';
 
 // --- HELPERS ---
 function toInt(n) {
@@ -213,9 +214,33 @@ export async function myOrders(req, res) {
     try {
         const { limit, skip } = parsePaging(req);
         const filter = { userId: req.user._id };
+        
+        // Populate thêm rmaRequestId để lấy chi tiết RMA (nếu có ref)
+        // HOẶC: Cách đơn giản hơn là lookup thủ công nếu cấu trúc DB cho phép
+        // Nhưng ở đây tôi giả định bạn đã lưu các trạng thái cơ bản vào Order.
+        // Để hiển thị ảnh UNC, chúng ta cần tìm RMA tương ứng.
+
         const items = await Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+        
+        // [MỚI] Lấy thông tin RMA chi tiết cho từng đơn (để lấy ảnh UNC)
+        const orderIds = items.map(o => o._id);
+        const rmas = await RMA.find({ orderId: { $in: orderIds } }).lean();
+        const rmaMap = new Map(rmas.map(r => [String(r.orderId), r]));
+
+        const result = items.map(o => {
+            const rma = rmaMap.get(String(o._id));
+            return {
+                ...toApiOrder(o),
+                rmaDetails: rma ? { // Gắn thêm info RMA vào order
+                    status: rma.status,
+                    refundProof: rma.refundProof, // Ảnh UNC
+                    adminNote: rma.adminNote
+                } : null
+            };
+        });
+
         const total = await Order.countDocuments(filter);
-        res.json({ items: items.map(toApiOrder), total, limit, skip });
+        res.json({ items: result, total, limit, skip });
     } catch (e) { res.status(500).json({ message: e.message }); }
 }
 
