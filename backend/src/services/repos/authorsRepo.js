@@ -88,9 +88,12 @@ export async function decAuthorBookCountByName(name, delta = 1) {
 }
 /** ===== End helpers ===== */
 
-export async function listAuthors({ limit = 50, start = 0, q = '' }) {
-  const take = Math.min(500, start + limit + 50);
-  const match = q
+export async function listAuthors({ limit = 50, start = 0, q = '', sort }) {
+  const take = Math.min(500, Number(limit) + 50); // Lấy dư một chút
+  const skip = Number(start) || 0;
+
+  // Điều kiện lọc
+  const matchStage = q
     ? {
         $or: [
           { name: { $regex: q, $options: 'i' } },
@@ -100,12 +103,58 @@ export async function listAuthors({ limit = 50, start = 0, q = '' }) {
       }
     : {};
 
-  const rows = await Author.aggregate([
-    { $match: match },
-    { $skip: start },
-    { $limit: take },
-  ]);
+  // Pipeline Aggregation để đếm sách
+  const pipeline = [
+    { $match: matchStage },
+    
+    // 1. Lookup sang bảng Books để đếm số lượng
+    {
+      $lookup: {
+        from: 'books', // Tên collection trong DB (thường là 'books')
+        let: { authorId: '$_id', authorName: '$name' },
+        pipeline: [
+          { 
+            $match: { 
+              $expr: { 
+                $or: [
+                  // Match theo ID (nếu book lưu authorIds là ObjectId)
+                  { $in: ['$$authorId', { $ifNull: ['$authorIds', []] }] }, 
+                  // Match theo tên (fallback cho dữ liệu cũ)
+                  { $eq: ['$author', '$$authorName'] } 
+                ]
+              } 
+            } 
+          },
+          // Chỉ cần đếm, không cần lấy dữ liệu
+          { $count: "count" }
+        ],
+        as: 'bookCountData'
+      }
+    },
+    
+    // 2. Gán giá trị đếm được vào field bookCount
+    {
+      $addFields: {
+        bookCount: { $ifNull: [{ $arrayElemAt: ["$bookCountData.count", 0] }, 0] }
+      }
+    },
+    
+    // 3. Bỏ trường tạm đi cho nhẹ
+    { $project: { bookCountData: 0 } }
+  ];
 
+  // Xử lý sắp xếp
+  if (sort === 'random') {
+      pipeline.push({ $sample: { size: Number(limit) } });
+  } else {
+      pipeline.push({ $sort: { name: 1 } });
+      pipeline.push({ $skip: skip });
+      pipeline.push({ $limit: take });
+  }
+
+  const rows = await Author.aggregate(pipeline);
+
+  // Map lại kết quả qua hàm mapAuthor để chuẩn hóa avatar...
   return rows.slice(0, limit).map(mapAuthor);
 }
 

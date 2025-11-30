@@ -7,7 +7,7 @@ const BookSchema = new Schema(
   {
     title: { type: String, required: true, trim: true },
     // Slug: đường dẫn đẹp (ví dụ: dac-nhan-tam)
-    slug: { type: String, trim: true, index: true, unique: true }, 
+    slug: { type: String, trim: true, unique: true }, 
     
     author: String,
     authorName: String, // Lưu cache tên tác giả để đỡ phải join bảng

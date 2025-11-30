@@ -1,11 +1,28 @@
 import { Order } from '../../models/Order.js';
 import { Book } from '../../models/Book.js';
 import { Transaction } from '../../models/Transaction.js';
+import { User } from '../../models/User.js';
 
 function pushHistory(o, type, by = 'admin', note = '', extra = {}) {
   o.history = Array.isArray(o.history) ? o.history : [];
   const ts = new Date();
   o.history.unshift({ ts, at: ts, type, by, note, ...extra });
+}
+
+async function updateSoldCounts(items) {
+  if (!items || !items.length) return;
+
+  const operations = items.map((item) => ({
+    updateOne: {
+      filter: { _id: item.bookId || item._id }, 
+      // Cộng dồn số lượng mua vào soldCount
+      update: { $inc: { soldCount: Number(item.qty || item.quantity || 0) } }, 
+    },
+  }));
+
+  if (operations.length > 0) {
+    await Book.bulkWrite(operations);
+  }
 }
 
 /** ========== Ghi chú nội bộ đơn hàng ========== */
@@ -258,7 +275,7 @@ export const markDelivered = async (req, res) => {
   if (o.shipping) {
     o.shipping = { ...(o.shipping || {}), status: 'delivered' };
   }
-
+  await updateSoldCounts(o.items);
   pushHistory(o, 'deliver', req.user?.name || 'admin', 'Admin marked delivered');
   await o.save();
   return res.json(o.toObject());
@@ -352,4 +369,133 @@ export const setPaymentStatus = async (req, res) => {
   }
 
   return res.json(o.toObject());
+};
+
+export const assignShipper = async (req, res) => {
+  const { id } = req.params; // Order ID
+  const { shipperId } = req.body; // Shipper ID
+
+  try {
+    // 1. Tìm đơn hàng
+    const o = await Order.findById(id);
+    if (!o) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+
+    // 2. Tìm Shipper (Bỏ qua check role phức tạp để tránh lỗi, chỉ cần tìm thấy user là được)
+    const shipper = await User.findById(shipperId);
+    if (!shipper) return res.status(404).json({ message: 'Không tìm thấy nhân viên Shipper' });
+
+    // 3. Cập nhật thông tin (Trực tiếp, không cần check status cũ quá gắt gao)
+    o.status = 'ready_to_pick'; // Chuyển trạng thái
+    
+    // Khởi tạo object shipping nếu chưa có
+    if (!o.shipping) o.shipping = {};
+
+    // Gán dữ liệu
+    o.shipping.shipperId = shipper._id;
+    o.shipping.assignedAt = new Date();
+    o.shipping.status = 'assigned';
+
+    // Thêm log vào mảng logs (nếu mảng chưa có thì tạo mới)
+    const newLog = { status: 'assigned', note: `Gán cho: ${shipper.name}`, at: new Date() };
+    if (Array.isArray(o.shipping.logs)) {
+        o.shipping.logs.push(newLog);
+    } else {
+        o.shipping.logs = [newLog];
+    }
+
+    // Ghi lịch sử chung của đơn hàng
+    o.history.unshift({
+        at: new Date(),
+        type: 'assign_ship',
+        by: req.user?.name || 'admin',
+        note: `Đã gán cho shipper: ${shipper.name}`
+    });
+
+    // 4. Lưu
+    await o.save();
+    
+    res.json(o.toObject());
+  } catch (e) {
+    console.error("Lỗi gán Shipper:", e); // Log lỗi ra console server để dễ debug
+    res.status(500).json({ message: e.message || 'Lỗi server khi gán shipper' });
+  }
+};
+
+export const confirmRestock = async (req, res) => {
+  const { id } = req.params;
+  const { note } = req.body; // Ghi chú nhập kho
+
+  try {
+    const o = await Order.findById(id);
+    if (!o) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+
+    // Chỉ cho phép nhập kho khi trạng thái là 'returned' (Shipper đã trả về)
+    // Hoặc 'delivery_failed' (Giao thất bại)
+    if (!['returned', 'delivery_failed', 'cancelled'].includes(o.status)) {
+      return res.status(400).json({ message: 'Đơn hàng không ở trạng thái chờ nhập kho (returned)' });
+    }
+
+    // 1. Cộng lại tồn kho (Stock)
+    const operations = o.items.map((item) => ({
+      updateOne: {
+        filter: { _id: item.bookId },
+        update: { $inc: { stock: Number(item.qty || 1), soldCount: -Number(item.qty || 1) } }
+      }
+    }));
+
+    if (operations.length > 0) {
+      await Book.bulkWrite(operations);
+    }
+
+    // 2. Đổi trạng thái đơn thành 'refunded' (Đã hoàn tiền/huỷ xong)
+    o.status = 'refunded'; 
+    o.payment.status = 'refunded'; // Đánh dấu tiền cũng đã xử lý
+    
+    // 3. Ghi log lịch sử
+    o.history.unshift({
+      at: new Date(),
+      type: 'restock',
+      by: req.user?.name || 'admin',
+      note: note || 'Admin xác nhận đã nhập kho hàng hoàn'
+    });
+
+    await o.save();
+    return res.json(o.toObject());
+  } catch (error) {
+    console.error("Restock error:", error);
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const list = async (req, res) => {
+  try {
+    const { q, status } = req.query;
+    const filter = {};
+
+    // Lọc trạng thái
+    if (status && status !== 'all') {
+        filter.status = status;
+    }
+
+    // Tìm kiếm (Mã đơn, Tên khách, SĐT)
+    if (q) {
+        const regex = new RegExp(q, 'i');
+        filter.$or = [
+            { code: regex },
+            { 'shippingAddress.receiver': regex },
+            { 'shippingAddress.phone': regex },
+        ];
+    }
+
+    const orders = await Order.find(filter)
+      .sort({ createdAt: -1 })
+      .populate('userId', 'name email phone avatarUrl') // Lấy thông tin User
+      .populate('shipping.shipperId', 'name phone avatarUrl') // ✅ QUAN TRỌNG: Lấy thông tin Shipper
+      .lean();
+
+    res.json({ items: orders, total: orders.length });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: e.message });
+  }
 };

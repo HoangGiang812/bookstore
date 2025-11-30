@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { requireAuth } from "../middlewares/auth.js"; // 1. THÊM: Import middleware bảo mật
+import { requireAuth, requireRoles } from "../middlewares/auth.js";
 
 const router = Router();
 
@@ -40,8 +40,9 @@ const upload = multer({
 // 3. SỬA: Đổi route từ '/avatar' thành '/'
 router.post(
   "/", 
-  requireAuth, // 4. THÊM: Bắt buộc đăng nhập
-  upload.single("image"), // 5. SỬA: Đổi tên field 'file' thành 'image'
+  requireAuth,
+  requireRoles('admin', 'staff', 'shipper'),
+  upload.single("image"), 
   (req, res) => {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });

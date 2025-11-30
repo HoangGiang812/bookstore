@@ -12,15 +12,14 @@ import { getImageUrl } from '../../services/api.js';
 import ImageUploader from './admin/ImageUploader.jsx';
 import { X, Truck, Package, RefreshCcw, AlertTriangle, CheckCircle, CreditCard, Smartphone } from 'lucide-react';
 
-// --- HẰNG SỐ ---
+// --- HẰNG SỐ & HELPER ---
 const TABS = [
   { key: 'all',              label: 'Tất cả đơn' },
   { key: 'pending',          label: 'Chờ thanh toán' },
   { key: 'processing',       label: 'Đang xử lý' },
   { key: 'shipping',         label: 'Đang vận chuyển' },
-  { key: 'delivered',        label: 'Đã giao' },
   { key: 'completed',        label: 'Hoàn tất' },
-  { key: 'cancelled',        label: 'Đã huỷ' },
+  { key: 'cancelled',        label: 'Đã huỷ / Hoàn tiền' },
 ];
 
 const REASONS = [
@@ -37,29 +36,60 @@ const RMA_REASONS = [
   { key: 'other',          label: 'Khác (ghi rõ)' },
 ];
 
-function TabButton({ label, active, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-4 py-2 text-sm font-medium -mb-px ${
-        active 
-          ? 'border-b-2 border-blue-600 text-blue-600' 
-          : 'text-gray-500 hover:text-gray-700'
-      }`}
-    >
-      {label}
-    </button>
-  );
-}
+const getOrderStatusDisplay = (o) => {
+    const s = o.status;
+    const isPaid = o.payment?.status === 'paid' || o.paymentStatus === 'paid' || o.paid;
+    const isCOD = o.payment?.method === 'cod';
+
+    if (s === 'refunded') return { label: 'Đã hoàn tiền', color: 'text-red-600', bg: 'bg-red-50' };
+    if (s === 'returned') return { label: 'Đang hoàn về kho', color: 'text-orange-600', bg: 'bg-orange-50' };
+    if (o.rmaStatus === 'approved') return { label: 'Yêu cầu Trả hàng được duyệt', color: 'text-blue-600', bg: 'bg-blue-50', showGuide: true };
+    if (o.rmaStatus === 'requested') return { label: 'Đang chờ duyệt trả hàng', color: 'text-blue-600', bg: 'bg-blue-50' };
+
+    switch (s) {
+        case 'pending':
+            return { 
+                label: isPaid ? 'Chờ xác nhận (Đã thanh toán)' : 'Chờ xác nhận', 
+                color: isPaid ? 'text-blue-700' : 'text-gray-600', 
+                bg: isPaid ? 'bg-blue-50' : 'bg-gray-100',
+                showPayBtn: !isPaid
+            };
+        case 'confirmed': 
+        case 'processing': 
+            return { label: 'Đang đóng gói', color: 'text-blue-600', bg: 'bg-blue-50' };
+        case 'ready_to_pick': 
+            return { label: 'Shipper đang lấy hàng', color: 'text-indigo-600', bg: 'bg-indigo-50' };
+        case 'shipping': 
+            return { label: 'Đang giao hàng', color: 'text-purple-600', bg: 'bg-purple-50' };
+        case 'delivery_failed': 
+            return { label: 'Giao thất bại (Chờ giao lại)', color: 'text-orange-600', bg: 'bg-orange-50' };
+        case 'delivered': 
+            return { label: 'Đã giao thành công', color: 'text-emerald-600', bg: 'bg-emerald-50', showConfirmBtn: true }; 
+        case 'completed': 
+            return { label: 'Hoàn thành', color: 'text-green-700', bg: 'bg-green-100' };
+        case 'cancelled': 
+        case 'cancel_requested': 
+            return { label: 'Đã hủy', color: 'text-gray-500', bg: 'bg-gray-100' };
+        default: 
+            return { label: s, color: 'text-gray-600', bg: 'bg-gray-50' };
+    }
+};
 
 const money  = (n) => (Number(n || 0)).toLocaleString('vi-VN') + 'đ';
 const dateVN = (d) => (d ? new Date(d).toLocaleString('vi-VN') : '-');
 
-const normStatus = (s) => {
-  const m = { shipped: 'shipping', delivered: 'delivered', canceled: 'cancelled' };
-  return m[s] || s;
-};
+// Helper Tabs Image
+const TabButton = ({ label, active, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+      active ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+    }`}
+  >
+    {label}
+  </button>
+);
 
 export default function Orders() {
   const { user } = useAuth();
@@ -67,18 +97,16 @@ export default function Orders() {
   const nav = useNavigate();
 
   const [tab, setTab] = useState('all');
-  const [q, setQ] = useState('');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Cancel dialog states
+  // --- STATE MODALS (Đã gộp gọn gàng, không trùng lặp) ---
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelOrderId, setCancelOrderId] = useState(null);
-  const [cancelIsPending, setCancelIsPending] = useState(false);
   const [reasonKey, setReasonKey] = useState('');
   const [reasonOther, setReasonOther] = useState('');
   
-  // RMA dialog states
   const [rmaOpen, setRmaOpen] = useState(false); 
   const [rmaOrder, setRmaOrder] = useState(null); 
   const [rmaReasonKey, setRmaReasonKey] = useState('');
@@ -87,71 +115,97 @@ export default function Orders() {
   const [rmaImageTab, setRmaImageTab] = useState('upload');
   const [urlInput, setUrlInput] = useState('');
   
-  // Payment Modal State
   const [payOpen, setPayOpen] = useState(false);
   const [payOrder, setPayOrder] = useState(null);
   
   const [guideOpen, setGuideOpen] = useState(false);
   const [guideOrder, setGuideOrder] = useState(null);
   
-  const [submitting, setSubmitting] = useState(false);
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [rmaBank, setRmaBank] = useState({ bankName: '', accountNo: '', accountName: '' });
 
+  // --- LOAD DỮ LIỆU ---
   const reload = async () => {
     if (!user?._id && !user?.id) return;
     setLoading(true);
     try {
       const data = await listOrders({});
       setItems(Array.isArray(data) ? data : (data?.items || []));
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { reload(); }, [user]);
 
   const view = useMemo(() => {
-    const byTab = items.filter((o) => (tab === 'all' ? true : normStatus(o.status) === tab));
-    const t = q.trim().toLowerCase();
-    if (!t) return byTab;
-    return byTab.filter((o) => {
-      const code   = String(o.code || o._id || o.id || '').toLowerCase();
-      return code.includes(t);
+    if (tab === 'all') return items;
+    return items.filter((o) => {
+        if (tab === 'pending') return ['pending'].includes(o.status);
+        if (tab === 'processing') return ['confirmed', 'processing', 'ready_to_pick'].includes(o.status);
+        if (tab === 'shipping') return ['shipping', 'delivery_failed'].includes(o.status);
+        if (tab === 'completed') return ['delivered', 'completed'].includes(o.status);
+        if (tab === 'cancelled') return ['cancelled', 'refunded', 'returned', 'cancel_requested'].includes(o.status);
+        return false;
     });
-  }, [items, tab, q]);
+  }, [items, tab]);
 
-  const getOrderStatusDisplay = (o) => {
-    const st = normStatus(o.status);
-    const isCOD = o.payment?.method === 'cod';
-    const isPaid = o.payment?.status === 'paid';
+  // --- COMPONENT STEPPER ---
+  const OrderStepper = ({ status }) => {
+      const steps = [
+        { key: 'pending', label: 'Đặt hàng' },
+        { key: 'processing', label: 'Đang xử lý' },
+        { key: 'shipping', label: 'Vận chuyển' },
+        { key: 'delivered', label: 'Đã giao' },
+        { key: 'completed', label: 'Hoàn tất' }
+      ];
+      
+      let currentStep = 0;
+      if (['confirmed', 'processing', 'ready_to_pick'].includes(status)) currentStep = 1;
+      else if (['shipping', 'delivery_failed'].includes(status)) currentStep = 2;
+      else if (['delivered'].includes(status)) currentStep = 3;
+      else if (['completed'].includes(status)) currentStep = 4;
+      else if (['cancelled', 'returned', 'refunded'].includes(status)) 
+        return <div className="text-red-500 font-bold bg-red-50 p-2 rounded text-center text-sm">Đơn hàng đã hủy / hoàn tiền</div>;
 
-    if (st === 'refunded') return { label: 'Đã hoàn tiền', color: 'text-orange-600', bg: 'bg-orange-50' };
-    if (o.rmaStatus === 'approved') return { label: 'Đang đổi/trả (Chờ gửi hàng)', color: 'text-blue-600', bg: 'bg-blue-50', showGuide: true };
-    if (o.rmaStatus === 'requested') return { label: 'Đã yêu cầu đổi/trả', color: 'text-blue-600', bg: 'bg-blue-50' };
+      return (
+        <div className="flex items-center justify-between w-full mb-6 px-2">
+          {steps.map((step, idx) => {
+            const isCompleted = idx <= currentStep;
+            const isLast = idx === steps.length - 1;
+            return (
+              <div key={step.key} className="flex-1 flex items-center relative">
+                <div className={`w-3 h-3 rounded-full z-10 transition-colors duration-300 ${isCompleted ? 'bg-green-600 ring-2 ring-green-100' : 'bg-gray-300'}`}></div>
+                <div className={`absolute top-8 left-1/2 -translate-x-1/2 w-24 text-center text-[10px] font-medium leading-tight ${isCompleted ? 'text-green-700' : 'text-gray-400'}`}>
+                  {step.label}
+                </div>
+                {!isLast && (
+                  <div className={`h-[2px] w-full absolute left-0 top-[5px] pl-3 transition-colors duration-300 ${idx < currentStep ? 'bg-green-600' : 'bg-gray-200'}`}></div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+  };
 
-    switch(st) {
-      case 'pending': 
-        return isCOD 
-          ? { label: 'Chờ xác nhận (COD)', color: 'text-gray-600', bg: 'bg-gray-100' }
-          : { label: 'Chờ thanh toán', color: 'text-red-600', bg: 'bg-red-50', showPayBtn: !isPaid };
-      case 'processing': return { label: 'Đang xử lý', color: 'text-blue-600', bg: 'bg-blue-50' };
-      case 'shipping': return { label: 'Đang vận chuyển', color: 'text-purple-600', bg: 'bg-purple-50' };
-      case 'delivered': return { label: 'Đã giao hàng', color: 'text-green-600', bg: 'bg-green-50' };
-      case 'completed': return { label: 'Hoàn tất', color: 'text-green-700', bg: 'bg-green-100' };
-      case 'cancelled': return { label: 'Đã huỷ', color: 'text-gray-500', bg: 'bg-gray-100' };
-      default: return { label: st, color: 'text-gray-600', bg: 'bg-gray-50' };
+  // --- ACTIONS HANDLERS ---
+  
+  // 1. Submit Xác nhận đã nhận hàng
+  const submitConfirmReceived = async () => {
+    if (!confirmModal) return;
+    setSubmitting(true);
+    try {
+        await confirmReceived(confirmModal.orderId);
+        showToast({ type: 'success', title: 'Cảm ơn bạn đã mua hàng! 🎉' });
+        await reload();
+        setConfirmModal(null);
+    } catch (e) {
+        showToast({ type: 'error', title: 'Lỗi', msg: e.message });
+    } finally {
+        setSubmitting(false);
     }
   };
 
-  // --- CÁC HÀM XỬ LÝ ---
-  
-  const openCancelDialog = (orderId, isPending) => {
-    setCancelOrderId(orderId);
-    setCancelIsPending(!!isPending);
-    setReasonKey('');
-    setReasonOther('');
-    setCancelOpen(true);
-  };
-
+  // 2. Submit Hủy đơn
   const submitCancel = async () => {
     if (!cancelOrderId) return;
     const picked = REASONS.find(r => r.key === reasonKey);
@@ -161,18 +215,13 @@ export default function Orders() {
       await cancelOrder(cancelOrderId, { reason: finalReason });
       setCancelOpen(false);
       reload();
-      showToast({ type: 'success', title: 'Thành công', duration: 2000 });
+      showToast({ type: 'success', title: 'Đã hủy đơn hàng' });
     } catch (e) {
       showToast({ type: 'error', title: 'Lỗi', msg: e.message });
     } finally { setSubmitting(false); }
   };
 
-  const onConfirmReceived = async (id) => {
-    if(!window.confirm("Bạn xác nhận đã nhận được hàng?")) return;
-    try { await confirmReceived(id); reload(); } catch (e) {}
-  };
-
-  // Logic RMA
+  // 3. Logic RMA (Đổi trả)
   const openRMADialog = (order) => {
     setRmaOrder(order);
     setRmaReasonKey('');
@@ -182,10 +231,13 @@ export default function Orders() {
     setUrlInput('');
     setRmaOpen(true);
   };
-  const closeRMADialog = () => {
-    if (submitting) return;
-    setRmaOpen(false);
-    setRmaOrder(null);
+  const closeRMADialog = () => { if (!submitting) setRmaOpen(false); };
+  
+  const handleImageUpload = (newImageUrl) => {
+    if (newImageUrl && !rmaImages.includes(newImageUrl)) {
+      setRmaImages(prev => [...prev, newImageUrl]);
+      showToast({ type: 'success', title: 'Đã thêm ảnh', duration: 1500 });
+    }
   };
   const addImageUrl = () => {
     if (urlInput && urlInput.trim() !== '' && !rmaImages.includes(urlInput)) {
@@ -193,29 +245,38 @@ export default function Orders() {
     }
     setUrlInput('');
   };
-  const handleImageUpload = (newImageUrl) => {
-    if (newImageUrl && !rmaImages.includes(newImageUrl)) {
-      setRmaImages(prev => [...prev, newImageUrl]);
-      showToast({ type: 'success', title: 'Đã thêm ảnh', duration: 1500 });
-    }
-  };
-  const removeImage = (index) => {
-    setRmaImages(prev => prev.filter((_, i) => i !== index));
-  };
+  const removeImage = (index) => setRmaImages(prev => prev.filter((_, i) => i !== index));
+
   const submitRMA = async () => {
     if (!rmaOrder) return;
     if (!rmaReasonKey) { alert('Vui lòng chọn lý do trả hàng'); return; }
+    
+    // [MỚI] Validate ngân hàng
+    if (!rmaBank.bankName || !rmaBank.accountNo || !rmaBank.accountName) {
+        alert('Vui lòng nhập thông tin ngân hàng để nhận tiền hoàn.');
+        return;
+    }
+
     const pickedReason = RMA_REASONS.find(r => r.key === rmaReasonKey)?.label || 'Khác';
     const itemsPayload = (rmaOrder.items || []).map(item => ({
       bookId: item.bookId,
       qty: item.qty || 1,
       reason: pickedReason
     }));
-    const payload = { type: 'return', items: itemsPayload, customerNote: rmaNote, images: rmaImages };
+
+    // [MỚI] Thêm bankInfo vào payload
+    const payload = { 
+        type: 'return', 
+        items: itemsPayload, 
+        customerNote: rmaNote, 
+        images: rmaImages,
+        bankInfo: rmaBank // <-- QUAN TRỌNG
+    };
+
     setSubmitting(true);
     try {
       await requestRMA(rmaOrder._id, payload);
-      closeRMADialog();
+      closeRMADialog(); // Hàm đóng modal cũ của bạn
       showToast({ type: 'success', title: 'Đã gửi yêu cầu đổi/trả' });
       await reload();
     } catch (e) {
@@ -223,40 +284,26 @@ export default function Orders() {
     } finally { setSubmitting(false); }
   };
 
-  // --- LOGIC THANH TOÁN MỚI ---
-  const openPaymentDialog = (order) => {
-    setPayOrder(order);
-    setPayOpen(true);
-  };
-  
+  // 4. Logic Thanh toán
   const proceedToPay = (method) => {
     if (!payOrder) return;
     const oid = payOrder._id || payOrder.id;
     const code = payOrder.code;
-    
-    // Đóng modal
     setPayOpen(false);
     setPayOrder(null);
-    
-    // Chuyển hướng
     if (method === 'bank') {
       nav(`/payment-bank?orderId=${encodeURIComponent(oid)}&code=${encodeURIComponent(code)}`);
-    } else if (method === 'vnpay' || method === 'momo') {
-      alert('Tính năng thanh toán VNPAY/Momo đang bảo trì. Vui lòng chọn Chuyển khoản.');
+    } else {
+      alert('Tính năng đang bảo trì. Vui lòng chọn chuyển khoản.');
     }
-  };
-
-  // --- LOGIC HƯỚNG DẪN RMA ---
-  const openReturnGuideDialog = (order) => {
-    setGuideOrder(order);
-    setGuideOpen(true);
   };
 
   return (
     <div className="bg-gray-50 min-h-screen">
       <div className="container px-4 py-6 grid lg:grid-cols-[280px,1fr] gap-6">
-        {/* Sidebar (Giữ nguyên) */}
-        <aside className="bg-white rounded-xl border shadow-sm h-fit">
+        
+        {/* Sidebar */}
+        <aside className="bg-white rounded-xl border shadow-sm h-fit hidden lg:block">
           <div className="flex items-center gap-3 px-4 py-4 border-b">
             <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
               <span className="text-xl">👤</span>
@@ -272,12 +319,6 @@ export default function Orders() {
             <Link to="/account/info" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
               <span className="w-6 text-center">👤</span> Thông tin tài khoản
             </Link>
-            <Link to="/account/reviews" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
-              <span className="w-6 text-center">⭐</span> Đánh giá sản phẩm
-            </Link>
-            <Link to="/account/comments" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
-              <span className="w-6 text-center">💬</span> Nhận xét của tôi
-            </Link>
             <Link to="/account/addresses" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
               <span className="w-6 text-center">📍</span> Sổ địa chỉ
             </Link>
@@ -288,117 +329,115 @@ export default function Orders() {
         </aside>
 
         {/* Content */}
-        <section className="bg-white rounded-xl border shadow-sm">
-          <div className="px-5 pt-5 border-b pb-4">
-            <h1 className="text-2xl font-semibold mb-4">Đơn hàng của tôi</h1>
-            <div className="flex flex-wrap gap-6 font-medium text-gray-700 overflow-x-auto">
+        <section className="bg-white rounded-xl border shadow-sm min-h-[500px]">
+          <div className="px-5 pt-5 border-b pb-0">
+            <h1 className="text-2xl font-bold text-gray-900 mb-4">Đơn hàng của tôi</h1>
+            <div className="flex gap-6 overflow-x-auto no-scrollbar">
               {TABS.map(t => (
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key)}
-                  className={`relative py-2 whitespace-nowrap ${tab === t.key ? 'text-violet-700 font-bold' : 'text-gray-600 hover:text-gray-800'}`}
+                  className={`relative py-3 whitespace-nowrap text-sm font-medium transition-colors ${tab === t.key ? 'text-violet-700' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                   {t.label}
-                  {tab === t.key && <span className="absolute left-0 right-0 -bottom-[17px] h-[2px] bg-violet-600 rounded-full" />}
+                  {tab === t.key && <span className="absolute left-0 right-0 bottom-0 h-[2px] bg-violet-600 rounded-t-full" />}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* List */}
-          <div className="p-5 space-y-4">
-            {items.length === 0 && <div className="text-center text-gray-500 py-8">Chưa có đơn hàng nào.</div>}
+          <div className="p-5 space-y-4 bg-gray-50/50 min-h-[400px]">
+            {loading && <div className="text-center py-10">Đang tải...</div>}
+            {!loading && view.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                    <Package size={48} className="opacity-20 mb-3"/>
+                    <p>Chưa có đơn hàng nào.</p>
+                </div>
+            )}
             
             {view.map((o) => {
               const display = getOrderStatusDisplay(o);
               const total = Number(o?.pricing?.grandTotal ?? o?.total?.grand ?? 0);
               const discount = Number(o?.pricing?.discount ?? o?.discount ?? 0);
-              const isCompleted = normStatus(o.status) === 'completed';
-              const isDelivered = normStatus(o.status) === 'delivered';
 
               return (
-                <div key={o._id || o.id} className="rounded-lg border p-4 hover:shadow-sm transition bg-white">
-                  <div className="flex flex-wrap items-start justify-between gap-4 mb-3 pb-3 border-b border-dashed">
+                <div key={o._id || o.id} className="rounded-xl border border-gray-200 p-5 bg-white shadow-sm hover:shadow-md transition-all duration-200">
+                  <div className="mb-5 pb-5 border-b border-dashed border-gray-200">
+                      <OrderStepper status={o.status} />
+                  </div>
+
+                  <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
                     <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-gray-900">#{String(o.code || o._id).slice(-6)}</span>
-                        <span className="text-gray-400">|</span>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="font-bold text-gray-900 text-lg">#{String(o.code || o._id).slice(-6)}</span>
+                        <span className="text-gray-300">|</span>
                         <span className="text-sm text-gray-500">{dateVN(o.createdAt)}</span>
                       </div>
-                      <div className={`mt-1 text-sm font-medium px-2 py-0.5 rounded w-fit ${display.bg} ${display.color}`}>
+                      <div className={`inline-flex items-center px-2.5 py-1 rounded-md text-sm font-bold ${display.bg} ${display.color}`}>
                         {display.label}
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-bold text-violet-700">{money(total)}</div>
-                      
-                      {/* ✅ HIỂN THỊ GIẢM GIÁ (MỚI) */}
-                      {discount > 0 && (
-                         <div className="text-xs text-green-600 font-medium">
-                           (Đã giảm: {money(discount)})
-                         </div>
-                      )}
-                      
-                      <div className="text-xs text-gray-500 uppercase mt-1">{o.payment?.method || 'COD'}</div>
+                      <div className="text-xl font-bold text-violet-700">{money(total)}</div>
+                      {discount > 0 && <div className="text-xs text-green-600 font-medium mt-0.5">(Đã giảm: {money(discount)})</div>}
+                      <div className="text-xs text-gray-400 font-medium uppercase mt-1 tracking-wider">{o.payment?.method || 'COD'}</div>
                     </div>
                   </div>
 
                   {display.showGuide && (
-                    <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded-lg flex items-start gap-3 text-sm text-blue-800">
-                      <Truck className="w-5 h-5 shrink-0 mt-0.5" />
+                    <div className="mb-4 p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-3 text-sm text-blue-800">
+                      <div className="bg-white p-2 rounded-full shadow-sm"><Truck className="w-5 h-5 text-blue-600" /></div>
                       <div>
-                        <strong>Yêu cầu đổi trả đã được duyệt!</strong>
-                        <p className="mt-1">Vui lòng đóng gói sản phẩm cẩn thận. Shipper sẽ liên hệ bạn trong 1-2 ngày tới để thu hồi hàng hoàn.</p>
+                        <strong className="block text-base mb-1">Yêu cầu đổi trả đã được duyệt!</strong>
+                        <p className="opacity-90">Vui lòng đóng gói sản phẩm cẩn thận. Shipper sẽ liên hệ bạn trong 1-2 ngày tới để thu hồi hàng hoàn.</p>
                       </div>
                     </div>
                   )}
 
-                  <div className="space-y-2">
+                  <div className="space-y-3 bg-gray-50 p-4 rounded-xl">
                     {(o.items || []).map((i, idx) => (
                       <div key={idx} className="flex items-center justify-between text-sm">
-                        <div className="flex items-center gap-3 overflow-hidden">
-                          <span className="text-gray-500">x{i.quantity || i.qty}</span>
-                          <span className="truncate max-w-[200px] sm:max-w-md" title={i.title}>{i.title}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-gray-500 font-bold w-8">x{i.quantity || i.qty}</span>
+                          <span className="font-medium text-gray-800 line-clamp-1">{i.title}</span>
                         </div>
-                        <span className="font-medium">{money((i.unitPrice || 0) * (i.qty || 1))}</span>
+                        <span className="font-medium">
+                            {money((Number(i.price) || Number(i.unitPrice) || 0) * (i.qty || 1))}
+                        </span>
                       </div>
                     ))}
                   </div>
 
-                  <div className="mt-4 pt-3 border-t flex flex-wrap justify-end gap-2">
-                    
-                    {/* ✅ NÚT THANH TOÁN NGAY (MỚI) */}
+                  <div className="mt-5 flex flex-wrap justify-end gap-3">
                     {display.showPayBtn && (
-                      <button 
-                        onClick={() => openPaymentDialog(o)} // Mở Modal Chọn Thanh Toán
-                        className="btn bg-violet-600 text-white hover:bg-violet-700 btn-sm"
-                      >
+                      <button onClick={() => { setPayOrder(o); setPayOpen(true); }} className="btn bg-violet-600 text-white hover:bg-violet-700 px-4 py-2 rounded-lg font-medium shadow-sm shadow-violet-200">
                         Thanh toán ngay
                       </button>
                     )}
 
-                    {(o.status === 'pending' || o.status === 'processing') && (
-                      <button onClick={() => openCancelDialog(o._id, o.status === 'pending')} className="btn border hover:bg-gray-50 text-gray-600">Huỷ đơn</button>
-                    )}
-                    {isDelivered && (
-                      <button onClick={() => onConfirmReceived(o._id)} className="btn bg-emerald-600 text-white hover:bg-emerald-700"><Package className="w-4 h-4 mr-1" /> Đã nhận hàng</button>
-                    )}
-                    {isCompleted && !o.rmaStatus && (
-                      <button onClick={() => openRMADialog(o)} className="btn border border-red-200 text-red-600 hover:bg-red-50"><RefreshCcw className="w-4 h-4 mr-1" /> Đổi/Trả</button>
-                    )}
-                    {o.rmaStatus === 'requested' && (
-                      <span className="px-3 py-2 text-sm text-blue-600 bg-blue-50 rounded border border-blue-100 flex items-center gap-1">
-                        <RefreshCcw className="w-4 h-4 animate-spin" /> Đang chờ duyệt...
-                      </span>
-                    )}
-                    {o.rmaStatus === 'approved' && (
-                      <button onClick={() => openReturnGuideDialog(o)} className="btn bg-blue-600 text-white hover:bg-blue-700 animate-pulse"><Package className="w-4 h-4 mr-1" /> Xem hướng dẫn trả hàng</button>
-                    )}
-                    {o.rmaStatus === 'processed' && (
-                       <span className="text-green-600 text-sm font-medium flex items-center gap-1 px-3 py-2 bg-green-50 rounded border border-green-100"><CheckCircle size={16}/> Đổi trả hoàn tất</span>
+                    {['pending', 'confirmed'].includes(o.status) && (
+                      <button onClick={() => { setCancelOrderId(o._id); setCancelOpen(true); }} className="btn border border-gray-300 text-gray-600 hover:bg-gray-50 px-4 py-2 rounded-lg font-medium">
+                        Huỷ đơn
+                      </button>
                     )}
 
-                    <Link to="/categories" className="btn border hover:bg-gray-50">Mua lại</Link>
+                    {/* NÚT XÁC NHẬN NHẬN HÀNG */}
+                    {display.showConfirmBtn && (
+                      <button 
+                        onClick={() => setConfirmModal({ orderId: o._id })} 
+                        className="btn bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-2 px-5 py-2 rounded-lg font-bold shadow-lg shadow-emerald-200 animate-pulse"
+                      >
+                        <CheckCircle size={18} /> Đã nhận được hàng
+                      </button>
+                    )}
+
+                    {o.status === 'completed' && !o.rmaStatus && (
+                      <button onClick={() => openRMADialog(o)} className="btn border border-red-200 text-red-600 hover:bg-red-50 px-4 py-2 rounded-lg font-medium">
+                         Đổi/Trả
+                      </button>
+                    )}
+                    
+                    <Link to="/categories" className="btn border border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-lg font-medium">Mua lại</Link>
                   </div>
                 </div>
               );
@@ -407,14 +446,48 @@ export default function Orders() {
         </section>
       </div>
 
-      {/* Modal Cancel */}
+      {/* --- MODALS SECTION --- */}
+
+      {/* 1. Confirm Received Modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-[1300] flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !submitting && setConfirmModal(null)}></div>
+            <div className="relative bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 p-6 text-center">
+                <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <CheckCircle size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Xác nhận đã nhận hàng?</h3>
+                <p className="text-gray-500 text-sm mb-6">
+                    Bằng việc xác nhận, bạn đồng ý rằng đã nhận đủ hàng và sản phẩm không có vấn đề gì. Hệ thống sẽ hoàn tất đơn hàng.
+                </p>
+                <div className="flex gap-3">
+                    <button 
+                        onClick={() => setConfirmModal(null)}
+                        disabled={submitting}
+                        className="flex-1 py-2.5 rounded-xl border border-gray-300 text-gray-700 font-medium hover:bg-gray-50"
+                    >
+                        Để sau
+                    </button>
+                    <button 
+                        onClick={submitConfirmReceived}
+                        disabled={submitting}
+                        className="flex-1 py-2.5 rounded-xl bg-green-600 text-white font-bold hover:bg-green-700 shadow-lg shadow-green-200"
+                    >
+                        {submitting ? 'Đang xử lý...' : 'Xác nhận ngay'}
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* 2. Cancel Modal */}
       {cancelOpen && (
         <div className="fixed inset-0 z-[1000]">
           <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && setCancelOpen(false)} />
           <div className="absolute inset-0 flex items-center justify-center p-4">
             <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-black/5">
               <div className="px-5 pt-5">
-                <h2 className="text-lg font-semibold">{cancelIsPending ? 'Huỷ đơn hàng' : 'Gửi yêu cầu huỷ'}</h2>
+                <h2 className="text-lg font-semibold">Gửi yêu cầu huỷ</h2>
                 <p className="mt-1 text-sm text-gray-600">Vui lòng chọn lý do huỷ để chúng tôi phục vụ tốt hơn.</p>
               </div>
               <div className="px-5 py-4 space-y-2">
@@ -431,7 +504,7 @@ export default function Orders() {
               <div className="px-5 pb-5 flex items-center justify-end gap-3">
                 <button className="btn bg-gray-100 hover:bg-gray-200" onClick={() => setCancelOpen(false)} disabled={submitting}>Bỏ qua</button>
                 <button className="btn bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60" onClick={submitCancel} disabled={submitting || (reasonKey === 'other' ? !reasonOther.trim() : !reasonKey)}>
-                  {submitting ? 'Đang gửi…' : (cancelIsPending ? 'Xác nhận huỷ' : 'Gửi yêu cầu')}
+                  {submitting ? 'Đang gửi…' : 'Xác nhận huỷ'}
                 </button>
               </div>
             </div>
@@ -439,7 +512,7 @@ export default function Orders() {
         </div>
       )}
 
-      {/* ✅ MODAL RMA */}
+      {/* 3. RMA Modal */}
       {rmaOpen && rmaOrder && (
         <div className="fixed inset-0 z-[1000]">
           <div className="absolute inset-0 bg-black/40" onClick={closeRMADialog} />
@@ -449,54 +522,46 @@ export default function Orders() {
                 <h2 className="text-xl font-semibold text-red-600">Yêu cầu Đổi / Trả hàng</h2>
                 <div className="mt-2 p-3 bg-red-50 border border-red-100 rounded text-sm text-red-800 flex gap-2">
                   <AlertTriangle size={18} className="shrink-0" />
-                  <p>Chính sách: Bạn đang yêu cầu trả hàng cho toàn bộ đơn hàng <b>#{String(rmaOrder.code || rmaOrder._id).slice(-6)}</b>.</p>
+                  <p>Bạn đang yêu cầu trả hàng cho đơn hàng <b>#{String(rmaOrder.code || rmaOrder._id).slice(-6)}</b>.</p>
                 </div>
               </div>
 
               <form id="rmaForm" onSubmit={(e) => { e.preventDefault(); submitRMA(); }} className="flex-1 overflow-y-auto p-5 space-y-4">
+                {/* Products */}
                 <div className="space-y-2 border rounded-lg p-3 bg-gray-50">
-                  <p className="text-xs font-bold text-gray-500 uppercase">Sản phẩm sẽ trả:</p>
+                  <p className="text-xs font-bold text-gray-500 uppercase">Sản phẩm:</p>
                   {(rmaOrder.items || []).map((item, i) => (
                     <div key={i} className="flex justify-between text-sm">
                       <span>{item.title}</span>
                       <span className="font-mono text-gray-600">x{item.qty}</span>
                     </div>
                   ))}
-                  <div className="border-t pt-2 mt-2 flex justify-between font-bold text-gray-800">
-                    <span>Tổng hoàn tiền dự kiến:</span>
-                    <span>{money(rmaOrder?.pricing?.grandTotal ?? rmaOrder?.total?.grand)}</span>
-                  </div>
                 </div>
 
+                {/* Reasons */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Lý do trả hàng <span className="text-red-500">*</span></label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Lý do <span className="text-red-500">*</span></label>
                   <div className="space-y-2">
                     {RMA_REASONS.map(r => (
                       <label key={r.key} className="flex items-center gap-3 p-2 border rounded hover:bg-gray-50 cursor-pointer">
-                        <input
-                          type="radio"
-                          name="rma_reason_global"
-                          className="accent-red-600"
-                          checked={rmaReasonKey === r.key}
-                          onChange={() => setRmaReasonKey(r.key)}
-                        />
+                        <input type="radio" name="rma_reason" className="accent-red-600" checked={rmaReasonKey === r.key} onChange={() => setRmaReasonKey(r.key)} />
                         <span className="text-sm text-gray-800">{r.label}</span>
                       </label>
                     ))}
                   </div>
                 </div>
 
+                {/* Images */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Hình ảnh minh chứng</label>
                   <div className="flex border-b mb-2 mt-1">
-                    <TabButton label="Tải lên (Local)" active={rmaImageTab === 'upload'} onClick={() => setRmaImageTab('upload')} />
-                    <TabButton label="Dán link (URL)" active={rmaImageTab === 'url'} onClick={() => setRmaImageTab('url')} />
+                    <TabButton label="Tải lên" active={rmaImageTab === 'upload'} onClick={() => setRmaImageTab('upload')} />
+                    <TabButton label="Link URL" active={rmaImageTab === 'url'} onClick={() => setRmaImageTab('url')} />
                   </div>
-                  <div className="mt-4">
+                  <div className="mt-2">
                     {rmaImageTab === 'upload' && (
-                      <div className="compact-uploader mt-2">
+                      <div className="compact-uploader">
                         <ImageUploader value={null} onChange={handleImageUpload} />
-                        <p className="text-xs text-gray-400 mt-2 text-center italic">Hỗ trợ: JPG, PNG, GIF. Tối đa 5MB.</p>
                       </div>
                     )}
                     {rmaImageTab === 'url' && (
@@ -518,6 +583,44 @@ export default function Orders() {
                   )}
                 </div>
 
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <h4 className="text-sm font-bold text-yellow-800 mb-3 flex items-center gap-2">
+                      <CreditCard size={16}/> Thông tin nhận tiền hoàn
+                  </h4>
+                  <div className="space-y-3">
+                      <div>
+                          <label className="text-xs font-bold text-gray-600 block mb-1">Tên Ngân hàng</label>
+                          <input 
+                              className="input w-full text-sm" 
+                              placeholder="VD: MB Bank, Vietcombank..." 
+                              value={rmaBank.bankName} 
+                              onChange={e => setRmaBank({...rmaBank, bankName: e.target.value})}
+                          />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                          <div>
+                              <label className="text-xs font-bold text-gray-600 block mb-1">Số tài khoản</label>
+                              <input 
+                                  className="input w-full text-sm" 
+                                  placeholder="VD: 0123456789" 
+                                  value={rmaBank.accountNo} 
+                                  onChange={e => setRmaBank({...rmaBank, accountNo: e.target.value})}
+                              />
+                          </div>
+                          <div>
+                              <label className="text-xs font-bold text-gray-600 block mb-1">Tên chủ thẻ (Không dấu)</label>
+                              <input 
+                                  className="input w-full text-sm uppercase" 
+                                  placeholder="NGUYEN VAN A" 
+                                  value={rmaBank.accountName} 
+                                  onChange={e => setRmaBank({...rmaBank, accountName: e.target.value})}
+                              />
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+                {/* Note */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Ghi chú thêm</label>
                   <textarea className="mt-1 w-full input min-h-[70px]" placeholder="Mô tả chi tiết lỗi..." value={rmaNote} onChange={(e) => setRmaNote(e.target.value)} />
@@ -527,7 +630,7 @@ export default function Orders() {
               <div className="flex-shrink-0 px-5 pb-5 flex items-center justify-end gap-3 border-t pt-4">
                 <button className="btn bg-gray-100 hover:bg-gray-200" onClick={closeRMADialog} disabled={submitting}>Hủy bỏ</button>
                 <button type="submit" form="rmaForm" className="btn bg-red-600 text-white hover:bg-red-700 disabled:opacity-60" disabled={submitting || !rmaReasonKey}>
-                  {submitting ? 'Đang gửi…' : 'Gửi yêu cầu đổi/trả'}
+                  {submitting ? 'Đang gửi…' : 'Gửi yêu cầu'}
                 </button>
               </div>
             </div>
@@ -535,43 +638,7 @@ export default function Orders() {
         </div>
       )}
 
-      {/* ✅ MODAL HƯỚNG DẪN TRẢ HÀNG */}
-      {guideOpen && guideOrder && (
-        <div className="fixed inset-0 z-[1100]">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setGuideOpen(false)} />
-          <div className="absolute inset-0 flex items-center justify-center p-4">
-            <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-              <div className="bg-blue-600 px-6 py-4 flex justify-between items-center text-white">
-                <h3 className="text-lg font-bold flex items-center gap-2">
-                  <Truck size={20} /> Hướng dẫn Gửi hàng
-                </h3>
-                <button onClick={() => setGuideOpen(false)} className="hover:bg-blue-700 p-1 rounded"><X size={20}/></button>
-              </div>
-              <div className="p-6 space-y-4 text-gray-700">
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-sm">
-                  <p className="font-semibold text-blue-800 mb-1">✅ Yêu cầu của bạn đã được chấp nhận!</p>
-                  <p>Vui lòng làm theo các bước sau để gửi hàng về cho chúng tôi.</p>
-                </div>
-                <ol className="list-decimal list-inside space-y-3 text-sm">
-                  <li><strong>Đóng gói sản phẩm:</strong> Đóng gói kỹ sản phẩm (kèm phụ kiện/quà tặng nếu có).</li>
-                  <li><strong>Ghi mã đơn hàng:</strong> Viết mã đơn <span className="font-mono font-bold bg-gray-100 px-1">#{String(guideOrder.code || guideOrder._id).slice(-6)}</span> lên bên ngoài kiện hàng.</li>
-                  <li><strong>Gửi về địa chỉ kho:</strong>
-                    <div className="mt-2 p-3 bg-gray-100 rounded text-sm font-mono border border-gray-200">
-                      Kho BookStore (Phòng Trả hàng)<br/>123 Đường Nguyễn Văn Cừ, Quận 5, TP.HCM<br/>SĐT: 0901 234 567
-                    </div>
-                  </li>
-                  <li><strong>Chờ xác nhận:</strong> Sau khi nhận được hàng, chúng tôi sẽ kiểm tra và hoàn tiền trong vòng 24h.</li>
-                </ol>
-              </div>
-              <div className="bg-gray-50 px-6 py-4 text-right border-t">
-                <button onClick={() => setGuideOpen(false)} className="btn bg-blue-600 text-white hover:bg-blue-700 w-full">Đã hiểu</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ✅ MODAL CHỌN PHƯƠNG THỨC THANH TOÁN (MỚI) */}
+      {/* 4. Payment Modal */}
       {payOpen && payOrder && (
         <div className="fixed inset-0 z-[1200]">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setPayOpen(false)} />
@@ -582,30 +649,13 @@ export default function Orders() {
                  <button onClick={() => setPayOpen(false)}><X size={20}/></button>
               </div>
               <div className="p-6 space-y-3">
-                 <button 
-                   onClick={() => proceedToPay('bank')}
-                   className="w-full p-4 border rounded-xl flex items-center gap-3 hover:bg-blue-50 hover:border-blue-200 transition"
-                 >
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                      <CreditCard size={20} />
-                    </div>
-                    <div className="text-left">
-                       <div className="font-semibold text-gray-900">Chuyển khoản Ngân hàng</div>
-                       <div className="text-xs text-gray-500">Quét mã QR, duyệt nhanh</div>
-                    </div>
+                 <button onClick={() => proceedToPay('bank')} className="w-full p-4 border rounded-xl flex items-center gap-3 hover:bg-blue-50 hover:border-blue-200 transition">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600"><CreditCard size={20} /></div>
+                    <div className="text-left"><div className="font-semibold text-gray-900">Chuyển khoản Ngân hàng</div><div className="text-xs text-gray-500">Quét mã QR, duyệt nhanh</div></div>
                  </button>
-
-                 <button 
-                   onClick={() => proceedToPay('momo')}
-                   className="w-full p-4 border rounded-xl flex items-center gap-3 hover:bg-pink-50 hover:border-pink-200 transition"
-                 >
-                    <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center text-pink-600">
-                      <Smartphone size={20} />
-                    </div>
-                    <div className="text-left">
-                       <div className="font-semibold text-gray-900">Ví Momo / VNPAY</div>
-                       <div className="text-xs text-gray-500">Cổng thanh toán điện tử</div>
-                    </div>
+                 <button onClick={() => proceedToPay('momo')} className="w-full p-4 border rounded-xl flex items-center gap-3 hover:bg-pink-50 hover:border-pink-200 transition">
+                    <div className="w-10 h-10 rounded-full bg-pink-100 flex items-center justify-center text-pink-600"><Smartphone size={20} /></div>
+                    <div className="text-left"><div className="font-semibold text-gray-900">Ví Momo / VNPAY</div><div className="text-xs text-gray-500">Cổng thanh toán điện tử</div></div>
                  </button>
               </div>
             </div>

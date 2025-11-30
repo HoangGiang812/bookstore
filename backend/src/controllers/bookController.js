@@ -174,6 +174,7 @@ export async function listBooks(req, res) {
   else if (sort === 'price_asc') cursor = cursor.sort({ price: 1 });
   else if (sort === 'price_desc') cursor = cursor.sort({ price: -1 });
   else if (sort === 'rating') cursor = cursor.sort({ ratingAvg: -1, rating: -1 });
+  else if (sort === 'bestseller') cursor = cursor.sort({ soldCount: -1 });
 
   const [items, total] = await Promise.all([cursor, Book.countDocuments(filter)]);
   res.json({ items, total, pageSize: limit });

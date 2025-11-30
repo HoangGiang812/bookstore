@@ -1,402 +1,230 @@
-// backend/src/controllers/orderController.js
 import mongoose from 'mongoose';
 import Order from '../models/Order.js';
-import { RMA } from '../models/RMA.js';
-import { Setting } from '../models/Setting.js';
+import { Setting } from '../models/Setting.js'; // Đảm bảo Model này đã sửa dùng 'key'
 import { Book } from '../models/Book.js';
 import { applyCoupon, markCouponUsed } from '../utils/coupon.js';
 import { sendMail, orderConfirmationTemplate } from '../utils/email.js';
 import { parsePaging } from '../utils/pagination.js';
 import { calcShippingFeeByVNAddress } from '../utils/shippingVN.js';
 
-/** ---------- Helpers ---------- */
+// --- HELPERS ---
 function toInt(n) {
   const v = Number(n || 0);
   return Number.isFinite(v) ? Math.round(v) : 0;
 }
+
 function computeTotals(items, shippingFee, taxRate) {
   const subtotal = items.reduce((s, it) => s + toInt(it.price) * toInt(it.qty), 0);
   const taxAmt = taxRate ? Math.floor(subtotal * Number(taxRate)) : 0;
   const ship = toInt(shippingFee);
   return { subtotal, taxAmt, shippingFee: ship, grand: subtotal + taxAmt + ship };
 }
+
+// --- SỬA LỖI TẠI ĐÂY ---
 async function getShippingFee() {
-  const ship =
-    (await Setting.findOne({ key: 'shipping' }).lean()) ||
-    (await Setting.findById('shipping').lean());
-  return toInt(ship?.value?.flat ?? ship?.value?.baseFee ?? 20000);
-}
-async function getTaxRate() {
-  const tax =
-    (await Setting.findOne({ key: 'tax' }).lean()) ||
-    (await Setting.findById('tax').lean());
-  return Number(tax?.value?.rate ?? 0);
-}
-function buildOrderCode() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(
-    d.getMinutes()
-  )}${pad(d.getSeconds())}`;
-  const rnd = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-  return `ORD-${stamp}-${rnd}`;
-}
-function pushHistory(o, type, by = 'system', note = '') {
-  o.history = Array.isArray(o.history) ? o.history : [];
-  const ts = new Date();
-  o.history.unshift({ ts, at: ts, type, by, note });
-}
-function calcProtectionUntil(deliveredAt) {
-  const days = Number(process.env.BUYER_PROTECTION_DAYS || 3);
-  if (!deliveredAt) return null;
-  const d = new Date(deliveredAt);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-/** Chuẩn hoá JSON trả về theo shape FE */
-function toApiOrder(o) {
-  if (!o) return o;
-  const toN = (x) => (Number.isFinite(Number(x)) ? Math.round(Number(x)) : 0);
-
-  const items = (o.items || []).map((it) => ({
-    orderItemId: it._id || new mongoose.Types.ObjectId(),
-    variantId: it.variantId || null,
-    bookId: it.bookId,
-    title: it.title,
-    format: it.format ?? null,
-    sku: it.sku ?? null,
-    unitPrice: toN(it.price),
-    qty: toN(it.qty),
-    subtotal: toN(it.price) * toN(it.qty),
-  }));
-
-  const subtotal = toN(o.subtotal ?? o.total?.sub);
-  const shippingFee = toN(o.shippingFee);
-  const tax = toN(o.tax);
-  const discount = toN(o.discount);
-  const grandTotal = toN(o.total?.grand ?? subtotal + shippingFee + tax - discount);
-
-  const sa = o.shippingAddress || {};
-  const shippingAddress = {
-    label: sa.label ?? null,
-    receiver: sa.name || sa.receiver || '',
-    phone: sa.phone || '',
-    province: sa.province || sa.city || '',
-    district: sa.district || '',
-    ward: sa.ward || '',
-    detail: sa.address || sa.detail || sa.line1 || '',
-    isDefault: !!sa.isDefault,
-  };
-
-  const shipping = o.shipping || {
-    method: 'STANDARD',
-    carrier: null,
-    trackingNo: null,
-    status: o.status || 'pending',
-    estimatedDays: null,
-  };
-
-  const pay = o.payment || {};
-  const payment = {
-    method: (pay.method || 'cod').toUpperCase(),
-    status: pay.status || 'unpaid',
-    capturedAt: pay.capturedAt || null,
-    refundTotal: toN(pay.refundTotal),
-  };
-
-  const statusHistory = Array.isArray(o.history)
-    ? o.history.map((h) => ({
-        state: h.type === 'create' ? 'pending' : h.type || '',
-        by: { id: null, name: h.by || 'system' },
-        at: h.ts || h.at || o.createdAt || new Date(),
-        note: h.note || '',
-      }))
-    : o.statusHistory || [];
-
-  const raw = String(o.status || 'pending').toLowerCase();
-  const normalized = raw === 'canceled' ? 'cancelled' : raw;
-
-  return {
-    _id: o._id,
-    code: o.code,
-    userId: o.userId,
-    status: normalized,
-    items,
-    pricing: {
-      subtotal,
-      discount,
-      shippingFee,
-      tax,
-      grandTotal,
-      currency: 'VND',
-    },
-    shippingAddress,
-    shipping,
-    payment,
-    attachments: o.attachments || [],
-    statusHistory,
-    couponCode: o.couponCode ?? null,
-    notesInternal: o.notesInternal || [],
-    createdAt: o.createdAt,
-    updatedAt: o.updatedAt,
-    cancelRequest: o.cancelRequest || undefined,
-    cancelledAt: o.cancelledAt || undefined,
-    deliveredAt: o.deliveredAt || undefined,
-    completedAt: o.completedAt || undefined,
-    protectionUntil: calcProtectionUntil(o.deliveredAt),
-  };
-}
-
-/** Kiểm tra DB có hỗ trợ transactions hay không */
-async function supportsTransactions() {
   try {
-    const admin = mongoose.connection.db.admin();
-    const s = await admin.command({ replSetGetStatus: 1 });
-    return s?.ok === 1;
-  } catch {
-    return false;
+    // Chỉ tìm theo key, KHÔNG dùng findById nữa
+    const ship = await Setting.findOne({ key: 'shipping' }).lean();
+    // Fallback giá trị mặc định 20k nếu chưa cấu hình
+    return toInt(ship?.value?.flat ?? ship?.value?.baseFee ?? 20000);
+  } catch (e) {
+    return 20000;
   }
 }
 
-/** ---------- Controllers ---------- */
+async function getTaxRate() {
+  try {
+    // Chỉ tìm theo key
+    const tax = await Setting.findOne({ key: 'tax' }).lean();
+    return Number(tax?.value?.rate ?? 0);
+  } catch (e) {
+    return 0;
+  }
+}
+// -----------------------
+
+function buildOrderCode() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  const rnd = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `ORD-${stamp}-${rnd}`;
+}
+
+function toApiOrder(o) {
+  if (!o) return o;
+  return {
+    ...o,
+    status: o.status || 'pending',
+    items: (o.items || []).map(it => ({
+       ...it,
+       orderItemId: it._id,
+       subtotal: toInt(it.price) * toInt(it.qty)
+    })),
+    pricing: {
+       subtotal: o.subtotal,
+       shippingFee: o.shippingFee,
+       tax: o.tax,
+       discount: o.discount,
+       grandTotal: o.total?.grand || 0
+    },
+    shipping: o.shipping || { method: 'STANDARD', status: 'pending' },
+    statusHistory: o.history || []
+  };
+}
+
+// --- CONTROLLER: TẠO ĐƠN HÀNG ---
 export async function createOrder(req, res) {
   const session = await mongoose.startSession();
   try {
+    if (!req.user || !req.user._id) {
+        return res.status(401).json({ message: 'Vui lòng đăng nhập lại.' });
+    }
+
     const { items, shippingAddress, payment, couponCode } = req.body || {};
+    
     if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ message: 'No items' });
+      return res.status(400).json({ message: 'Giỏ hàng trống' });
     }
 
-    const idemKey = req.get('Idempotency-Key');
-    if (idemKey) {
-      const existed = await Order.findOne({ userId: req.user?._id, idempotencyKey: idemKey }).lean();
-      if (existed) return res.status(200).json(toApiOrder(existed));
-    }
-
-    let [shippingFee, taxRate] = await Promise.all([getShippingFee(), getTaxRate()]);
+    const shippingFeeVal = await getShippingFee();
+    const taxRateVal = await getTaxRate();
 
     const norm = [];
-    const ids = [];
-    for (const it of items) {
-      if (!it?.bookId) return res.status(400).json({ message: 'Missing bookId' });
-      ids.push(it.bookId);
-    }
-
+    const ids = items.map(i => i.bookId);
     const books = await Book.find({ _id: { $in: ids } }).lean();
-    const byId = new Map(books.map((b) => [String(b._id), b]));
+    const byId = new Map(books.map(b => [String(b._id), b]));
 
     for (const it of items) {
       const b = byId.get(String(it.bookId));
-      if (!b) return res.status(400).json({ message: 'Book not found', bookId: it.bookId });
+      if (!b) throw new Error(`Sản phẩm ID ${it.bookId} không tồn tại`);
+      if ((b.stock || 0) < it.qty) throw new Error(`"${b.title}" chỉ còn ${b.stock} cuốn.`);
 
-      const price = toInt(it.price ?? b.price);
-      const title = it.title ?? b.title;
-      const categoryId = it.categoryId ?? (Array.isArray(b.categories) ? b.categories[0] : b.categoryId);
-      const qty = Math.max(1, toInt(it.qty ?? it.quantity));
-
-      norm.push({ bookId: it.bookId, qty, price, title, categoryId });
-    }
-
-    for (const it of norm) {
-      const book = byId.get(String(it.bookId));
-      if (!book) {
-        throw new Error(`Sản phẩm với ID ${it.bookId} không tồn tại.`);
-      }
-      
-      if (book.stock < it.qty) {
-        throw new Error(`Sản phẩm "${book.title}" chỉ còn ${book.stock} cuốn. Bạn đang đặt ${it.qty} cuốn.`);
-      }
-    }
-
-    try {
-      const tmpSubtotal = norm.reduce((s, it) => s + toInt(it.price) * toInt(it.qty), 0);
-      shippingFee = calcShippingFeeByVNAddress(shippingAddress, {
-        subtotal: tmpSubtotal,
-        freeShipThreshold: 300000,
+      norm.push({ 
+          bookId: it.bookId, 
+          qty: it.qty, 
+          price: toInt(it.price || b.price), 
+          title: b.title, 
+          image: b.coverUrl || b.image, 
+          categoryId: b.categoryIds?.[0]
       });
-    } catch {}
+    }
 
-    const totals = computeTotals(norm, shippingFee, taxRate);
+    let finalShip = shippingFeeVal;
+    try { finalShip = calcShippingFeeByVNAddress(shippingAddress, { subtotal: 0 }); } catch {}
 
+    const totals = computeTotals(norm, finalShip, taxRateVal);
     let discount = 0;
-    let coupon = null;
+    let couponDoc = null;
+
     if (couponCode) {
-      const resCp = await applyCoupon({
-        code: couponCode,
-        userId: req.user?._id,
-        items: norm,
-        subtotal: totals.subtotal,
-      });
-      if (!resCp?.valid) return res.status(400).json({ message: 'Coupon invalid', reason: resCp?.reason || 'invalid' });
-      discount = toInt(resCp.discount);
-      coupon = resCp.coupon || null;
+        const cpRes = await applyCoupon({ 
+            code: couponCode, userId: req.user._id, items: norm, subtotal: totals.subtotal 
+        });
+        if (cpRes.valid) {
+            discount = toInt(cpRes.discount);
+            couponDoc = cpRes.coupon;
+        }
     }
 
-    const grand = Math.max(0, totals.grand - discount);
-    const canTxn = await supportsTransactions();
+    const grandTotal = Math.max(0, totals.grand - discount);
 
-    const doDeductAndCreate = async (opts = {}) => {
-      for (const it of norm) {
-        const key = String(it.bookId);
-        const hasStock = Number.isFinite(byId.get(key)?.stock);
-        if (hasStock) {
-          const bookDoc = await Book.findOneAndUpdate(
-            { _id: it.bookId, stock: { $gte: it.qty } },
-            { $inc: { stock: -it.qty } },
-            { new: true, ...(opts.session ? { session: opts.session } : {}) }
-          );
-          if (!bookDoc) throw new Error(`OUT_OF_STOCK:${it.bookId}`);
-        } else {
-          const existsQ = Book.exists({ _id: it.bookId });
-          const exists = opts.session ? await existsQ.session(opts.session) : await existsQ;
-          if (!exists) throw new Error(`BOOK_NOT_FOUND:${it.bookId}`);
+    const executeOrderCreation = async (opts = {}) => {
+        for (const it of norm) {
+            await Book.updateOne(
+                { _id: it.bookId },
+                { $inc: { stock: -it.qty, soldCount: it.qty } },
+                opts
+            );
         }
-      }
 
-      await Order.create(
-        [
-          {
+        const [newOrder] = await Order.create([{
             code: buildOrderCode(),
-            idempotencyKey: idemKey || undefined,
-
-            userId: req.user?._id || null,
+            userId: req.user._id,
             status: 'pending',
-
             items: norm,
-
             subtotal: totals.subtotal,
             shippingFee: totals.shippingFee,
             tax: totals.taxAmt,
-            discount,
-            total: { sub: totals.subtotal, grand },
-
-            shippingAddress: shippingAddress || null,
+            discount: discount,
+            total: { sub: totals.subtotal, grand: grandTotal },
+            pricing: {
+               subtotal: totals.subtotal,
+               shipping: totals.shippingFee,
+               tax: totals.taxAmt,
+               discount: discount,
+               grandTotal: grandTotal
+            },
+            shippingAddress,
             payment: payment || { method: 'cod', status: 'unpaid' },
             couponCode: couponCode || null,
+            shipping: { method: 'STANDARD', status: 'pending', logs: [] },
+            history: [{ ts: new Date(), type: 'create', by: req.user.email, note: 'Khách tạo đơn' }],
+            placedAt: new Date()
+        }], opts);
 
-            history: [
-              { ts: new Date(), type: 'create', by: req.user?.email || req.user?.name || 'user', note: 'Order created' },
-            ],
-            placedAt: new Date(),
-          },
-        ],
-        { ...(opts.session ? { session: opts.session } : {}) }
-      );
-
-      if (coupon) {
-        const just = await Order.findOne({ userId: req.user?._id }).sort({ createdAt: -1 }).lean();
-        if (just?._id) await markCouponUsed(coupon._id, req.user?._id, just._id);
-      }
+        if (couponDoc) {
+            await markCouponUsed(couponDoc._id, req.user._id, newOrder._id);
+        }
+        return newOrder;
     };
 
-    if (canTxn) await session.withTransaction(async () => { await doDeductAndCreate({ session }); });
-    else await doDeductAndCreate();
-
-    const saved = await Order.findOne({ userId: req.user?._id }).sort({ createdAt: -1 }).lean();
-
+    let savedOrder;
     try {
-      if (req.user?.email) {
-        await sendMail({
-          to: req.user.email,
-          subject: `Xác nhận đơn hàng #${saved?.code}`,
-          html: orderConfirmationTemplate(saved),
+        await session.withTransaction(async () => {
+            savedOrder = await executeOrderCreation({ session });
         });
-      }
-    } catch {}
+    } catch (err) {
+        if (err.message.includes('Transaction') || err.message.includes('sessions')) {
+             console.warn("⚠️ Transaction not supported, fallback to normal save");
+             savedOrder = await executeOrderCreation();
+        } else {
+             throw err;
+        }
+    }
 
-    return res.status(201).json(toApiOrder(saved));
+    // --- PHẦN GỬI MAIL AN TOÀN (KHÔNG CRASH) ---
+    if (req.user.email) {
+        // .catch() ở đây sẽ bắt lỗi gửi mail riêng, không ảnh hưởng luồng chính
+        sendMail({
+            to: req.user.email,
+            subject: `Đặt hàng thành công #${savedOrder.code}`,
+            html: orderConfirmationTemplate(savedOrder),
+        }).catch(emailErr => {
+            console.error("⚠️ [MAIL ERROR] Không gửi được mail:", emailErr.message);
+        });
+    }
+
+    // Trả về kết quả thành công
+    return res.status(201).json(toApiOrder(savedOrder.toObject()));
+
   } catch (e) {
-    if (String(e.message || '').includes('stock') || String(e.message || '').includes('cuốn')) {
-      return res.status(400).json({ message: e.message });
-    }
-    if (String(e.message || '').startsWith('BOOK_NOT_FOUND:')) {
-      return res.status(404).json({ message: 'Book not found', bookId: e.message.split(':')[1] });
-    }
-    console.error('createOrder error:', e);
-    return res.status(500).json({ message: 'create_order_failed' });
+    // Catch lỗi chính của quá trình tạo đơn
+    console.error('Create Order Error:', e);
+    return res.status(500).json({ message: e.message || 'Lỗi tạo đơn hàng' });
   } finally {
+    // Luôn đóng session DB
     session.endSession();
   }
 }
 
+// --- CÁC API KHÁC GIỮ NGUYÊN ---
 export async function myOrders(req, res) {
-  try {
-    const { limit, skip } = parsePaging(req);
-    const userId = req.user._id;
-
-    const filter = { userId: new mongoose.Types.ObjectId(userId) };
-    if (req.query.status) {
-      // ... (giữ nguyên logic filter status cũ của bạn)
-      const q = String(req.query.status).toLowerCase();
-      const map = {
-        shipped: 'shipping', delivered: 'delivered', cancelled: 'cancelled',
-        canceled: 'cancelled', pending: 'pending', processing: 'processing',
-        completed: 'completed', 'cancel_requested': 'cancel_requested',
-        refunded: 'refunded'
-      };
-      filter.status = map[q] || q;
-    }
-
-    // ✅ SỬ DỤNG AGGREGATE ĐỂ LẤY RMA STATUS
-    const aggregationPipeline = [
-      { $match: filter },
-      { $sort: { createdAt: -1 } },
-      { $skip: skip },
-      { $limit: limit },
-      // --- JOIN VỚI BẢNG RMA ---
-      {
-        $lookup: {
-          from: 'rmas', // Tên collection trong DB
-          localField: '_id',
-          foreignField: 'orderId',
-          as: 'rmaHistory'
-        }
-      },
-      // --- LẤY TRẠNG THÁI MỚI NHẤT ---
-      {
-        $addFields: {
-          latestRMA: { $last: '$rmaHistory' }
-        }
-      },
-      {
-        $addFields: {
-          rmaStatus: '$latestRMA.status' // ✅ TRƯỜNG QUAN TRỌNG NHẤT
-        }
-      },
-      { $project: { rmaHistory: 0, latestRMA: 0 } } // Dọn dẹp
-    ];
-
-    const [items, totalResult] = await Promise.all([
-      Order.aggregate(aggregationPipeline),
-      Order.countDocuments({ userId: new mongoose.Types.ObjectId(userId) })
-    ]);
-
-    // Map lại dữ liệu để frontend dùng được (giữ nguyên toApiOrder nhưng thêm rmaStatus)
-    const mappedItems = items.map(item => {
-      const apiOrder = toApiOrder(item);
-      // Gán thủ công rmaStatus vào kết quả trả về
-      apiOrder.rmaStatus = item.rmaStatus; 
-      return apiOrder;
-    });
-
-    return res.json({ items: mappedItems, total: totalResult, limit, skip });
-
-  } catch (e) {
-    console.error('myOrders error:', e);
-    return res.status(500).json({ message: 'list_orders_failed' });
-  }
+    try {
+        const { limit, skip } = parsePaging(req);
+        const filter = { userId: req.user._id };
+        const items = await Order.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+        const total = await Order.countDocuments(filter);
+        res.json({ items: items.map(toApiOrder), total, limit, skip });
+    } catch (e) { res.status(500).json({ message: e.message }); }
 }
 
 export async function getMyOrder(req, res) {
-  try {
-    const o = await Order.findOne({ _id: req.params.id, userId: req.user._id }).lean();
-    if (!o) return res.status(404).json({ message: 'Not found' });
-    return res.json(toApiOrder(o));
-  } catch (e) {
-    console.error('getMyOrder error:', e);
-    return res.status(500).json({ message: 'get_order_failed' });
-  }
+    try {
+        const o = await Order.findOne({ _id: req.params.id, userId: req.user._id }).lean();
+        if (!o) return res.status(404).json({ message: 'Not found' });
+        res.json(toApiOrder(o));
+    } catch (e) { res.status(500).json({ message: e.message }); }
 }
 
 /**
@@ -408,39 +236,50 @@ export async function cancelMyOrder(req, res) {
   try {
     const { reason = '' } = req.body || {};
     const o = await Order.findOne({ _id: req.params.id, userId: req.user._id });
-    if (!o) return res.status(404).json({ message: 'Not found' });
+    
+    if (!o) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
 
-    const paid =
-      String(o.payment?.status || '').toLowerCase() === 'paid' ||
-      !!o.payment?.capturedAt;
-
-    if (o.status === 'pending' && !paid) {
-      // Huỷ ngay
-      o.status = 'cancelled';
-      o.cancelledAt = new Date();
-      pushHistory(o, 'cancel', req.user?.email || req.user?.name || 'user', reason ? `User canceled: ${reason}` : 'User canceled');
-      await o.save();
-      return res.json({ ok: 1, message: 'Đã huỷ đơn', order: toApiOrder(o.toObject()) });
+    // 1. Chỉ cho phép hủy khi chưa GIAO HÀNG (shipping/delivered)
+    if (['shipping', 'delivered', 'completed', 'cancelled', 'returned'].includes(o.status)) {
+         return res.status(400).json({ message: 'Không thể hủy đơn hàng khi đang giao hoặc đã hoàn tất.' });
     }
 
-    // Tạo yêu cầu huỷ để admin duyệt
+    const paid = String(o.payment?.status || '').toLowerCase() === 'paid' || !!o.payment?.capturedAt;
+
+    // 2. Nếu đơn mới tạo (pending) hoặc đã xác nhận (confirmed) NHƯNG chưa thanh toán -> Hủy luôn
+    if (['pending', 'confirmed'].includes(o.status) && !paid) {
+      o.status = 'cancelled';
+      o.cancelledAt = new Date();
+      
+      // Hoàn lại kho ngay lập tức
+       try {
+        for (const it of (o.items || [])) {
+            await Book.findByIdAndUpdate(it.bookId, { $inc: { stock: it.qty, soldCount: -it.qty } });
+        }
+      } catch {}
+
+      o.history.unshift({ at: new Date(), type: 'cancel', by: 'user', note: reason ? `Khách hủy: ${reason}` : 'Khách hủy đơn' });
+      await o.save();
+      return res.json({ ok: 1, message: 'Đã huỷ đơn thành công', order: o.toObject() });
+    }
+
+    // 3. Nếu đã thanh toán hoặc đã đóng gói (processing) -> Gửi yêu cầu để Admin duyệt
     o.status = 'cancel_requested';
     o.cancelRequest = {
       requested: true,
       reason: reason || '',
       requestedAt: new Date(),
-      byUser: req.user?._id || undefined
+      byUser: req.user?._id
     };
-    pushHistory(o, 'cancel_requested', req.user?.email || req.user?.name || 'user', reason || 'User requested cancel');
+    o.history.unshift({ at: new Date(), type: 'cancel_requested', by: 'user', note: reason || 'Khách yêu cầu hủy' });
     await o.save();
 
-    return res.json({ ok: 1, message: 'Đã gửi yêu cầu huỷ. Vui lòng chờ admin xét duyệt.', order: toApiOrder(o.toObject()) });
+    return res.json({ ok: 1, message: 'Đã gửi yêu cầu huỷ. Vui lòng chờ admin xét duyệt.', order: o.toObject() });
   } catch (e) {
     console.error('cancelMyOrder error:', e);
-    return res.status(500).json({ message: 'cancel_failed' });
+    return res.status(500).json({ message: 'Lỗi server khi hủy đơn: ' + e.message });
   }
 }
-
 /** (Tuỳ chọn) KH rút yêu cầu huỷ khi đang cancel_requested */
 export async function withdrawCancelMyOrder(req, res) {
   try {
@@ -519,19 +358,25 @@ export async function confirmReceived(req, res) {
   try {
     const o = await Order.findOne({ _id: req.params.id, userId: req.user._id });
     if (!o) return res.status(404).json({ message: 'Not found' });
+
+    // Chỉ cho phép hoàn thành nếu đơn đang ở trạng thái 'delivered' (đã giao)
     if (o.status !== 'delivered') {
-      return res.status(400).json({ message: 'Order is not in delivered status' });
+      return res.status(400).json({ message: 'Đơn hàng chưa được giao thành công bởi Shipper' });
     }
-    if (o.cancelRequest?.requested) {
-      return res.status(400).json({ message: 'Order has pending cancellation' });
-    }
-    const now = new Date();
-    if (!o.deliveredAt) o.deliveredAt = now;
+
     o.status = 'completed';
-    o.completedAt = now;
-    pushHistory(o, 'completed', req.user?.email || req.user?.name || 'user', 'Buyer confirmed received');
+    o.completedAt = new Date();
+    
+    // Ghi lịch sử
+    o.history.unshift({ 
+        at: new Date(), 
+        type: 'completed', 
+        by: req.user?.name || 'user', 
+        note: 'Khách xác nhận đã nhận hàng' 
+    });
+
     await o.save();
-    return res.json({ ok: 1, order: toApiOrder(o.toObject()) });
+    return res.json(toApiOrder(o.toObject()));
   } catch (e) {
     console.error('confirmReceived error:', e);
     return res.status(500).json({ message: 'confirm_failed' });

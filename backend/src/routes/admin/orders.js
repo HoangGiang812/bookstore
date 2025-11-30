@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireRoles } from '../../middlewares/auth.js';
+import { requireAuth, requireRoles } from '../../middlewares/auth.js';
 import {
   approveCancel,
   rejectCancel,
@@ -12,10 +12,12 @@ import {
   markDelivered,
   // Thanh toán
   setPaymentStatus,
+  assignShipper,
 } from '../../controllers/admin/orderAdminController.js';
 
 const r = Router();
 // Cho phép cả admin và staff quản trị đơn hàng
+const guardStaff = [requireAuth, requireRoles('admin', 'staff')];
 const requireAdmin = requireRoles('admin', 'staff');
 
 // ===== Ghi chú nội bộ đơn hàng
@@ -36,5 +38,7 @@ r.patch('/:id/payment', requireAdmin, setPaymentStatus);
 // ===== Hoàn tiền & Xoá đơn
 r.post('/:id/refund', requireAdmin, refundOrder);
 r.delete('/:id', requireAdmin, deleteOrder);
+
+r.post('/:id/assign', ...guardStaff, assignShipper);
 
 export default r;

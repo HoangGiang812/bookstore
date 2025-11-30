@@ -60,8 +60,16 @@ const ShippingSchema = new Schema({
   method:       { type: String, default: 'STANDARD' },
   carrier:      { type: String, default: null },
   trackingNo:   { type: String, default: null },
-  status:       { type: String, default: 'pending' }, // mirror/trạng thái vận chuyển
-  estimatedDays:{ type: Number, default: null }
+  status:       { type: String, default: 'pending' },
+  estimatedDays:{ type: Number, default: null },
+  shipperId:    { type: Schema.Types.ObjectId, ref: 'User' }, // Người giao hàng
+  assignedAt:   { type: Date }, // Ngày gán
+  pickedAt:     { type: Date }, // Ngày lấy hàng
+  proofImage:   { type: String }, // Ảnh bằng chứng
+  attempts:     { type: Number, default: 0 }, // Số lần thử giao
+  lastAttempt:  { type: Date },               // Thời gian thử gần nhất
+  
+  logs: [{ status: String, note: String, at: { type: Date, default: Date.now } }]
 }, { _id: false });
 
 /* ===== Main schema ===== */
@@ -111,7 +119,7 @@ const OrderSchema = new Schema({
   // === Trạng thái vận hành (đã thêm 'delivered')
   status: {
     type: String,
-    enum: ['pending','processing','shipping','delivered','completed','cancel_requested','cancelled', 'refunded'], 
+    enum: ['pending','processing','ready_to_pick','shipping','delivered','delivery_failed','returned','completed','cancel_requested','cancelled', 'refunded'], 
     default: 'pending',
     index: true
   },
@@ -150,7 +158,6 @@ const OrderSchema = new Schema({
 
 /* ===== Indexes ===== */
 OrderSchema.index({ userId: 1, createdAt: -1 });
-OrderSchema.index({ code: 1 });
 OrderSchema.index({ status: 1, createdAt: -1 });
 OrderSchema.index({ 'payment.intentId': 1 }, { sparse: true });
 

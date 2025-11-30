@@ -95,6 +95,14 @@ export const categories = {
   remove: (id) => api.delete(`/categories/${id}`),
 };
 
+export const collections = {
+  list: () => api.get('/admin/collections'),
+  create: (data) => api.post('/admin/collections', data),
+  update: (id, data) => api.patch(`/admin/collections/${id}`, data),
+  remove: (id) => api.delete(`/admin/collections/${id}`),
+  get: (id) => api.get(`/admin/collections/${id}`),
+};
+
 /* =========================
  * Authors
  * ========================= */
@@ -110,6 +118,14 @@ export const authors = {
     api.patch(`/authors/${idOrSlug}`, payload),
   remove: (idOrSlug) =>
     api.delete(`/authors/${idOrSlug}`),
+};
+
+export const posts = {
+  list: (params) => api.get('/admin/posts', { params }),
+  create: (data) => api.post('/admin/posts', data),
+  update: (id, data) => api.patch(`/admin/posts/${id}`, data),
+  remove: (id) => api.delete(`/admin/posts/${id}`),
+  get: (id) => api.get(`/admin/posts/${id}`),
 };
 
 /* =========================
@@ -202,3 +218,6 @@ export const settings = {
 export const toggleFeatured = (id) => {
   return api.patch(`/admin/books/${id}/toggle-featured`);
 };
+
+export const listShippers = () => api.get("/admin/users?role=shipper");
+export const assignShipper = (orderId, shipperId) => api.post(`/admin/orders/${orderId}/assign`, { shipperId });

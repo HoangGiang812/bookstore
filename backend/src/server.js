@@ -32,6 +32,9 @@ import publicCouponRoutes from './routes/publicCoupons.js';
 import paymentRoutes from './routes/payments.js';
 import adminOrdersRouter from './routes/admin/orders.js';
 import promotionRouter from './routes/promotions.js';
+import shipperRoutes from './routes/shipper.js';
+import { runAutoCompleteJob } from './cron/autocomplete.js';
+import { runAutoCancelJob } from './cron/autoCancelUnpaid.js';
 const app = express();
 
 // CORS: chỉnh origin theo ENV nếu cần
@@ -79,11 +82,20 @@ app.use('/api/coupon', couponRoutes);
 app.use('/api/public-coupons', publicCouponRoutes);
 app.use('/api/admin/orders', adminOrdersRouter);
 app.use('/api/admin/promotions', promotionRouter);
+app.use('/api/shipper', shipperRoutes);
 app.use(reviewRoutes);
 
 // 404 & Error handlers
 app.use(notFound);
 app.use(errorHandler);
+
+setInterval(() => {
+  runAutoCompleteJob();
+}, 3600000);
+
+setInterval(() => {
+  runAutoCancelJob();
+}, 1800000);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`API listening on :${PORT}`));

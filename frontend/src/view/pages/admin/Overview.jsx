@@ -4,12 +4,15 @@ import StatCard from './StatCard.jsx';
 const fmt = (n) => new Intl.NumberFormat('vi-VN',{style:'currency',currency:'VND'}).format(Number(n||0));
 
 export default function Overview({ kpi, timeFilter, setTimeFilter }) {
+  // --- SỬA LỖI TẠI ĐÂY: Khởi tạo giá trị mặc định nếu kpi chưa có ---
+  const data = kpi || { revenueByDay: [], status: {}, topBooks: [], topCustomers: [], totals: {} };
   const stats = {
-    totalBooks: kpi?.totals?.totalBooks || 0,
-    totalUsers: kpi?.totals?.totalUsers || 0,
-    totalOrders: kpi?.totals?.totalOrders || 0,
-    monthlyRevenue: (kpi.revenueByDay || []).reduce((s, r) => s + Number(r.amount || 0), 0)
+    totalBooks: data.totals?.totalBooks || 0,
+    totalUsers: data.totals?.totalUsers || 0,
+    totalOrders: data.totals?.totalOrders || 0,
+    monthlyRevenue: (data.revenueByDay || []).reduce((s, r) => s + Number(r.amount || 0), 0)
   };
+  // ------------------------------------------------------------------
 
   return (
     <div className="space-y-6">
@@ -48,7 +51,7 @@ export default function Overview({ kpi, timeFilter, setTimeFilter }) {
             <Crown className="w-5 h-5 text-yellow-500" />
           </div>
           <div className="space-y-3">
-            {(kpi.topBooks || []).map((b, i) => (
+            {(data.topBooks || []).map((b, i) => (
               <div key={b.productId || i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center gap-3">
                   <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-1 rounded-full">#{i + 1}</span>
@@ -68,7 +71,7 @@ export default function Overview({ kpi, timeFilter, setTimeFilter }) {
             <Star className="w-5 h-5 text-yellow-500" />
           </div>
           <div className="space-y-3">
-            {(kpi.topCustomers || []).map((c, i) => (
+            {(data.topCustomers || []).map((c, i) => (
               <div key={c.customerId || i} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center gap-3">
                   <span className="bg-purple-100 text-purple-800 text-xs font-medium px-2 py-1 rounded-full">#{i + 1}</span>

@@ -7,19 +7,37 @@ const RESET_EXPIRES_MS = Number(process.env.PASSWORD_RESET_TTL_MS || 1000 * 60 *
 // Hàm lấy danh sách người dùng (cho trang Admin)
 export const listUsers = async (req, res) => {
   try {
-    const users = await User.find({})
+    const { role } = req.query; 
+    const filter = {};
+    
+    // Debug log: Xem backend nhận được gì
+    // console.log("Listing users with filter role:", role);
+
+    if (role) {
+        // Lọc user có role nằm trong mảng roles HOẶC role đơn lẻ
+        // Sử dụng $in để bắt cả trường hợp roles=['shipper', 'staff']
+        filter.$or = [
+            { roles: role },       // Tìm trong mảng
+            { roles: { $in: [role] } }, // Tìm trong mảng (cách 2 cho chắc)
+            { role: role }         // Tìm role đơn (legacy)
+        ];
+    }
+
+    const users = await User.find(filter)
       .select('-passwordHash -resetOtp')
       .sort({ createdAt: -1 })
       .lean();
+
+    // Map dữ liệu chuẩn hóa
     const cleanedUsers = users.map(u => ({
       ...u,
       roles: Array.isArray(u.roles) ? u.roles : (u.role ? [u.role] : ['user'])
     }));
 
-    res.json({ items: cleanedUsers, total: cleanedUsers.length }); // Gửi về dữ liệu đã được làm sạch
+    res.json({ items: cleanedUsers, total: cleanedUsers.length });
   } catch (error) {
     console.error('Lỗi listUsers:', error);
-    res.status(500).json({ message: 'Lỗi máy chủ khi lấy danh sách người dùng' });
+    res.status(500).json({ message: 'Lỗi máy chủ' });
   }
 };
 
@@ -49,18 +67,23 @@ export const lockUnlockUser = async (req, res) => {
 
 export const updateUser = async (req, res) => {
   const { id } = req.params;
-  // Lấy thêm dob (object) và gender
   const { name, phone, roles, dob, gender } = req.body; 
 
   if (!name || !Array.isArray(roles) || !roles.length) {
     return res.status(400).json({ message: 'Tên và Vai trò (roles) là bắt buộc.' });
   }
 
-  const validRoles = roles.filter(r => ['user', 'staff', 'admin'].includes(r));
+  const validRoles = roles.filter(r => ['user', 'staff', 'admin', 'shipper'].includes(r));
+  
   if (validRoles.length === 0) {
     return res.status(400).json({ message: 'Phải có ít nhất một vai trò hợp lệ.' });
   }
-  
+
+  let mainRole = 'user';
+  if (validRoles.includes('admin')) mainRole = 'admin';
+  else if (validRoles.includes('staff')) mainRole = 'staff';
+  else if (validRoles.includes('shipper')) mainRole = 'shipper';
+
   try {
     const updatedUser = await User.findByIdAndUpdate(
       id,
@@ -69,9 +92,9 @@ export const updateUser = async (req, res) => {
           name: name,
           phone: phone,
           roles: validRoles,
-          role: validRoles.includes('admin') ? 'admin' : (validRoles.includes('staff') ? 'staff' : 'user'),
-          gender: gender, // ✅ Cập nhật gender
-          dob: dob,       // ✅ Cập nhật dob (gồm d, m, y)
+          role: mainRole,
+          gender: gender,
+          dob: dob,
         }
       },
       { new: true }

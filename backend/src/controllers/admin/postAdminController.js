@@ -72,7 +72,7 @@ export async function list(req, res) {
 
     const [items, total] = await Promise.all([
       Post.find(filter)
-        .populate('author', 'name avatar') // giống public controller → FE hiển thị tên tác giả
+        .populate('author', 'name avatar avatarUrl')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(Number(limit))

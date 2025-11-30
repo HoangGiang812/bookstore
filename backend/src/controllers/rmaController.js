@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 export async function requestRMA(req, res) {
   const orderId = req.params.id;
   // ✅ Lấy dữ liệu mới từ body
-  const { type, items, customerNote, images } = req.body; 
+  const { type, items, customerNote, images, bankInfo } = req.body; 
   
   const order = await Order.findOne({ _id: orderId, userId: req.user._id });
   if (!order) return res.status(404).json({ message: 'Order not found' });
@@ -22,6 +22,10 @@ export async function requestRMA(req, res) {
   const existingRMA = await RMA.findOne({ orderId: order._id, status: 'requested' });
   if (existingRMA) {
     return res.status(409).json({ message: 'Bạn đã gửi yêu cầu cho đơn này rồi.' });
+  }
+
+  if (type === 'return' && (!bankInfo?.bankName || !bankInfo?.accountNo || !bankInfo?.accountName)) {
+      return res.status(400).json({ message: 'Vui lòng cung cấp thông tin ngân hàng để hoàn tiền.' });
   }
 
   // Lấy thông tin sách từ đơn hàng để điền vào RMA items
@@ -44,7 +48,9 @@ export async function requestRMA(req, res) {
     status: 'requested',
     items: rmaItems,
     images: images || [],
-    customerNote: customerNote
+    customerNote: customerNote,
+    bankInfo: bankInfo,
+    pickupAddress: order.shippingAddress
   });
   
   res.status(201).json(rma);

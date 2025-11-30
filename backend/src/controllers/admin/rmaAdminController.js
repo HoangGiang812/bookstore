@@ -35,25 +35,30 @@ export const listRMA = async (req, res) => {
 // ✅ HÀM QUAN TRỌNG: Cập nhật trạng thái RMA & Đồng bộ Đơn hàng
 export const updateRMAStatus = async (req, res) => {
   try {
-    const { status, reason } = req.body; // reason ở đây là adminNote
-    const validStatuses = ['approved', 'rejected', 'processed'];
+    const { status, reason, refundProof, shipperId } = req.body; // Lấy thêm các field này
     
-    if (!status || !validStatuses.includes(status)) {
-       return res.status(400).json({ message: 'Trạng thái không hợp lệ' });
+    const rma = await RMA.findById(req.params.id);
+    if (!rma) return res.status(404).json({ message: 'RMA not found' });
+
+    // 1. Logic Gán Shipper (Khi Admin duyệt đơn -> approved)
+    if (status === 'approved') {
+        if (shipperId) {
+            rma.returnShipperId = shipperId;
+            rma.status = 'picking'; // Chuyển sang trạng thái chờ Shipper đi lấy
+        } else {
+            rma.status = 'approved'; // Nếu chưa gán shipper ngay thì để approved
+        }
     }
     
-    // Tìm RMA cũ
-    const rma = await RMA.findById(req.params.id);
-    if (!rma) return res.status(404).json({ message: 'Không tìm thấy yêu cầu RMA' });
-
-    // Cập nhật RMA
-    rma.status = status;
-    if (reason) rma.adminNote = reason; // (Bạn có thể thêm trường adminNote vào RMA.js nếu muốn)
-    await rma.save();
-
-    // --- LOGIC ĐỒNG BỘ (Sync Logic) ---
-    
-    if (status === 'processed') {
+    // 2. Logic Admin Hoàn tiền (processed/refunded)
+    else if (status === 'processed') {
+        // Bắt buộc phải có ảnh bằng chứng chuyển khoản nếu là trả hàng
+        if (rma.type === 'return' && !refundProof && !rma.refundProof) {
+            return res.status(400).json({ message: 'Vui lòng upload ảnh bằng chứng chuyển khoản (UNC).' });
+        }
+        if (refundProof) rma.refundProof = refundProof;
+        
+        rma.status = 'refunded';
       // Khi Admin chọn "Đánh dấu hoàn tất" (đã nhận hàng/đã hoàn tiền)
       
       const order = await Order.findById(rma.orderId);
@@ -95,10 +100,15 @@ export const updateRMAStatus = async (req, res) => {
       }
     }
     
+    else {
+        rma.status = status;
+    }
+
+    if (reason) rma.adminNote = reason;
+    await rma.save();
+    
     res.json(rma);
   } catch (e) {
-    console.error("Lỗi updateRMAStatus:", e);
-    // Trả về lỗi Validation (nếu có)
-    res.status(400).json({ message: e.message });
+    res.status(500).json({ message: e.message });
   }
 };

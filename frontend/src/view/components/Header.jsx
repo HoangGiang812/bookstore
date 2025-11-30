@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Info,
   User as UserIcon,
+  Layers,
 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState, useMemo, useRef } from "react";
@@ -406,15 +407,25 @@ export default function Header() {
             <div className="flex items-center gap-3">
               {(() => {
                 // Lấy mảng 'roles' mới, nếu không có thì tạo mảng từ 'role' cũ
-                const userRoles = user?.roles || [user?.role]; 
-                const isAuthorized = userRoles.includes('admin') || userRoles.includes('staff');
+                const userRoles = user?.roles || [user?.role] || []; 
+                
+                const isAdmin = userRoles.includes('admin');
+                const isStaff = userRoles.includes('staff');
+                const isShipper = userRoles.includes('shipper');
 
-                return isAuthorized && (
+                // Chỉ hiển thị nếu có ít nhất 1 trong 3 quyền này
+                if (!isAdmin && !isStaff && !isShipper) return null;
+
+                // Logic đặt tên nút: Nếu chỉ là Shipper -> "Giao hàng", còn lại -> "Quản trị"
+                const label = (isShipper && !isAdmin && !isStaff) ? "Giao hàng" : "Quản trị";
+                const icon = (isShipper && !isAdmin && !isStaff) ? "🚚" : "⚙️";
+
+                return (
                   <button
-                    onClick={() => nav("/admin")}
-                    className="px-3 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600"
+                    onClick={() => nav("/admin")} // Dashboard đã tự điều hướng Shipper vào đúng tab
+                    className="px-3 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 font-bold text-sm flex items-center gap-1 shadow-sm transition-colors"
                   >
-                    Quản trị
+                    <span>{icon}</span> {label}
                   </button>
                 );
               })()}
@@ -535,6 +546,19 @@ export default function Header() {
                 <span>Sách</span>
               </span>
             </Link>
+
+          <Link
+            to="/collections"
+            className={pathname.startsWith("/collections") ? "led-border" : "pill"}
+            title="Bộ sưu tập"
+            onMouseEnter={() => setOpen(false)}
+            onFocus={() => setOpen(false)}
+          >
+            <span className="pill-inner">
+              <Layers className="w-5 h-5" />
+              <span>Bộ sưu tập</span>
+            </span>
+          </Link>
 
             <Link
               to="/authors"

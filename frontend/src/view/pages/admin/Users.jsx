@@ -192,7 +192,7 @@ const EditUserModal = ({ user, onClose, onSave }) => {
             <div>
               <label className="block text-sm font-medium text-gray-700">Vai trò (Roles)</label>
               <div className="mt-2 flex flex-wrap gap-4">
-                {['user', 'staff', 'admin'].map(role => (
+                {['user', 'shipper', 'staff', 'admin'].map(role => (
                   <label key={role} className="inline-flex items-center">
                     <input
                       type="checkbox"
@@ -200,7 +200,9 @@ const EditUserModal = ({ user, onClose, onSave }) => {
                       onChange={() => handleRoleChange(role)}
                       className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                     />
-                    <span className="ml-2 text-sm text-gray-700 capitalize">{role}</span>
+                    <span className="ml-2 text-sm text-gray-700 capitalize">
+                        {role === 'shipper' ? 'Shipper (Giao hàng)' : role}
+                    </span>
                   </label>
                 ))}
               </div>

@@ -4,6 +4,7 @@ import { attachUserFromToken, requireAuth, requireRoles } from '../../middleware
 import { adminAudit } from '../../middlewares/audit.js';
 
 // ... (import các controllers)
+import { getSetting, updateSetting } from '../../controllers/admin/settingController.js';
 import {
   CategoryCtrl, AuthorCtrl, PublisherCtrl,
   BannerCtrl, PageCtrl, CouponCtrl, UsersCtrl, OrdersCtrl, RMACtrl
@@ -11,7 +12,9 @@ import {
 
 import { upload, importBooksCSV } from '../../controllers/admin/bookImportController.js';
 import { dashboardKpis } from '../../controllers/admin/dashboardController.js';
-import { addOrderNote, refundOrder, approveCancel, rejectCancel } from '../../controllers/admin/orderAdminController.js';
+import { 
+  list,addOrderNote, refundOrder, approveCancel, rejectCancel 
+} from '../../controllers/admin/orderAdminController.js';
 
 import { listUsers, lockUnlockUser } from '../../controllers/admin/userAdminController.js';
 import { updateUser, adminTriggerReset } from '../../controllers/admin/userAdminController.js'; // Import thêm updateUser
@@ -53,6 +56,8 @@ r.patch('/books/:id/toggle-featured', ...guardStaff, adminAudit, toggleFeatured)
 r.post('/books', ...guardAdmin, adminAudit, createBook);
 r.delete('/books/:id', ...guardAdmin, adminAudit, removeBook);
 r.post('/books/import', ...guardAdmin, adminAudit, upload.single('file'), importBooksCSV);
+r.get('/settings/:key', ...guardAdmin, getSetting);
+r.post('/settings/:key', ...guardAdmin, adminAudit, updateSetting);
 
 /** ===== Content (Categories, Authors, Publishers) ===== */
 r.get('/categories', ...guardStaff, CategoryCtrl.list);
@@ -100,7 +105,7 @@ r.post('/users/:id/trigger-reset', ...guardAdmin, adminAudit, adminTriggerReset)
 r.patch('/users/:id/lock', ...guardAdmin, adminAudit, lockUnlockUser);
 
 /** ===== Orders ===== */
-r.get('/orders', ...guardStaff, OrdersCtrl.list);
+r.get('/orders', ...guardStaff, list);
 r.patch('/orders/:id/status', ...guardStaff, adminAudit, OrdersCtrl.updateStatus);
 r.post('/orders/:id/notes', ...guardStaff, adminAudit, addOrderNote);
 r.post('/orders/:id/cancel/approve', ...guardStaff, adminAudit, approveCancel);

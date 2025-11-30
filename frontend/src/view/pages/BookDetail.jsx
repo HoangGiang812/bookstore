@@ -84,6 +84,7 @@ export default function BookDetail() {
           authors,
           images: imageList,
           mainImage: imageList[0],
+          soldCount: Number(b.soldCount || 0),
           
           originalPrice: Number(b.price ?? 0),
           discountPercent: Number(b.discountPercent ?? 0),
@@ -104,7 +105,7 @@ export default function BookDetail() {
             weight: b.weight ? `${b.weight} gr` : null,
           },
           categories: categories,
-          category: primaryCategory, // ✅ Lưu danh mục chính để hiển thị Breadcrumb
+          category: primaryCategory,
           categoryId: primaryCategory?._id || primaryCategory?.id
         };
         
@@ -340,26 +341,57 @@ export default function BookDetail() {
 
             <h1 className="text-3xl lg:text-4xl font-extrabold text-gray-900 mb-3 leading-tight">{book.title}</h1>
 
-            <div className="flex flex-wrap items-center gap-6 text-sm text-gray-500 mb-6">
-              <div>
-                 Tác giả: {' '}
-                 {book.authors.map((a, i) => (
-                   // ✅ SỬA LỖI LINK TÁC GIẢ: Dùng ID nếu không có slug
-                   <Link 
-                     key={i} 
-                     to={a.slug ? `/authors/${a.slug}` : (a.id ? `/authors/${a.id}` : '#')} 
-                     className="text-gray-900 font-semibold hover:text-blue-600 transition hover:underline"
-                   >
-                     {a.name}{i < book.authors.length - 1 ? ', ' : ''}
-                   </Link>
-                 ))}
-              </div>
-              <div className="w-px h-4 bg-gray-300"></div>
-              <div className="flex items-center gap-2">
-                 <Stars value={ratingSum.avg} />
-                 <span className="text-gray-900 font-semibold cursor-pointer">({ratingSum.cnt} đánh giá)</span>
-              </div>
+            <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600 mb-6">
+    
+            {/* 1. Tác giả */}
+            <div className="flex items-center gap-1">
+                <span>Tác giả:</span>
+                <div className="font-medium text-blue-600 truncate max-w-[200px]">
+                    {book.authors?.map((a, i) => (
+                        <Link 
+                            key={i} 
+                            to={a.slug ? `/authors/${a.slug}` : '#'} 
+                            className="hover:underline"
+                        >
+                            {a.name}{i < book.authors.length - 1 ? ', ' : ''}
+                        </Link>
+                    )) || "Đang cập nhật"}
+                </div>
             </div>
+
+            {/* Đường ngăn cách */}
+            <div className="h-4 w-px bg-gray-300 hidden sm:block"></div>
+
+            {/* 2. Đánh giá (Rating) */}
+            <div 
+                className="flex items-center gap-2 cursor-pointer group relative" 
+                onClick={() => document.getElementById('reviews')?.scrollIntoView({ behavior: 'smooth' })}
+                title="Xem chi tiết đánh giá"
+            >
+                <div className="flex items-center gap-1">
+                    <span className="text-lg font-bold text-yellow-500 leading-none mt-0.5">{ratingSum.avg}</span>
+                    <Stars value={ratingSum.avg} size={16} />
+                </div>
+                {/* Xóa lớp 'underline decoration-dotted...' chỉ giữ lại hiệu ứng đổi màu khi hover */}
+                <span className="text-gray-500 group-hover:text-blue-600 transition">
+                    ({ratingSum.cnt} đánh giá)
+                </span>
+            </div>
+
+            {/* Đường ngăn cách */}
+            <div className="h-4 w-px bg-gray-300 hidden sm:block"></div>
+
+            {/* 3. Lượt bán */}
+            <div className="flex items-center gap-1.5">
+                <span className="font-bold text-gray-900 text-base">
+                    {/* Format số lượng bán: > 1000 thì hiện k (vd: 1.5k) */}
+                    {book.soldCount > 1000 
+                        ? `${(book.soldCount / 1000).toFixed(1).replace('.0', '')}k` 
+                        : (book.soldCount || 0)}
+                </span>
+                <span>Đã bán</span>
+            </div>
+        </div>
 
             {/* Price Box */}
             <div className="bg-gray-50 border border-gray-100 p-6 rounded-2xl mb-6 relative overflow-hidden">

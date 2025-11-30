@@ -1,19 +1,26 @@
 import { Navigate, Outlet } from 'react-router-dom';
-import { useAuth } from '../../store/useAuth'; //
+import { useAuth } from '../../store/useAuth';
 
 export default function AdminRoute() {
-  const { user } = useAuth(); //
+  const { user, loading } = useAuth();
 
-  if (!user) {
-    // Nếu chưa đăng nhập, chuyển về trang login
-    return <Navigate to="/login" replace />; //
+  if (loading) return <div className="p-10 text-center">Đang tải...</div>;
+
+  // Nếu chưa đăng nhập -> Về login
+  if (!user) return <Navigate to="/login" replace />;
+
+  // Lấy role (xử lý cả mảng và chuỗi đơn)
+  const roles = user.roles || [user.role] || [];
+
+  // --- SỬA DÒNG NÀY ---
+  // Cho phép: admin, staff, HOẶC shipper
+  const isAllowed = roles.some(r => ['admin', 'staff', 'shipper'].includes(r));
+  // --------------------
+
+  if (!isAllowed) {
+    // Nếu không có quyền -> Về trang chủ (hoặc trang báo lỗi 403)
+    return <Navigate to="/" replace />;
   }
 
-  // ✅ Lấy mảng 'roles' từ user object (đã sửa ở Bước 1)
-  const userRoles = user.roles || []; 
-
-  // ✅ Kiểm tra xem user có phải admin HOẶC staff không
-  const isAuthorized = userRoles.includes('admin') || userRoles.includes('staff');
-
-  return isAuthorized ? <Outlet /> : <Navigate to="/" replace />; //
+  return <Outlet />;
 }

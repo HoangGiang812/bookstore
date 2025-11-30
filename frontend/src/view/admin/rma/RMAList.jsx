@@ -1,274 +1,187 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import * as rmaService from '@/services/rma.js'; 
-import { Search, RefreshCw, CheckCircle, XCircle, Eye, X, ExternalLink, Package, AlertTriangle } from 'lucide-react';
+import { listShippers } from '@/services/admin';
+import { Search, RefreshCw, CheckCircle, XCircle, Eye, X, ExternalLink, Package, AlertTriangle, Truck, CreditCard, Upload } from 'lucide-react';
 import { getImageUrl } from '@/services/api';
+import ImageUploader from '@/view/pages/admin/ImageUploader';
 
 const STATUS_COLORS = {
   requested: 'text-blue-600 bg-blue-50 border-blue-200',
   approved: 'text-orange-600 bg-orange-50 border-orange-200',
+  picking: 'text-indigo-600 bg-indigo-50 border-indigo-200',
   rejected: 'text-red-600 bg-red-50 border-red-200',
   processed: 'text-green-600 bg-green-50 border-green-200',
   cancelled: 'text-gray-500 bg-gray-100 border-gray-200',
+  refunded: 'text-green-700 bg-green-100 border-green-300'
 };
-
 const STATUS_LABELS = {
   requested: 'Mới yêu cầu',
-  approved: 'Đã duyệt (Chờ hàng về)',
+  approved: 'Đã duyệt (Chờ gán Shipper)',
+  picking: 'Shipper đang lấy hàng',
   rejected: 'Đã từ chối',
-  processed: 'Đã hoàn tiền (Xong)',
+  processed: 'Đã hoàn tất',
+  refunded: 'Đã hoàn tiền',
   cancelled: 'Đã huỷ',
 };
 
 const money = (n) => Number(n || 0).toLocaleString('vi-VN') + 'đ';
 
-// --- COMPONENT MODAL CHI TIẾT (NÂNG CẤP) ---
+// --- MODAL CHI TIẾT ---
 const RMADetailModal = ({ rma, onClose, onUpdateStatus }) => {
+  const [shipperList, setShipperList] = useState([]);
+  const [selectedShipper, setSelectedShipper] = useState('');
+  const [refundProof, setRefundProof] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  // Load danh sách shipper khi modal mở
+  useEffect(() => {
+      listShippers().then(res => setShipperList(res.items || res || [])).catch(()=>{});
+  }, []);
+
   if (!rma) return null;
-  
-  // Tính toán tài chính
   const orderTotal = rma.orderId?.total?.grand ?? rma.orderId?.pricing?.grandTotal ?? 0;
-  const orderDiscount = rma.orderId?.discount ?? rma.orderId?.pricing?.discount ?? 0;
-  
-  const refundSubtotal = (rma.items || []).reduce((sum, rmaItem) => {
-    let unitPrice = 0;
 
-    // CÁCH 1: Tìm trong items của Order (nếu đã populate)
-    const originalItem = (rma.orderId?.items || []).find(oi => 
-       // So sánh bookId (nếu oi.bookId là object thì lấy _id, nếu là string thì so sánh trực tiếp)
-       String(oi.bookId?._id || oi.bookId) === String(rmaItem.bookId)
-    );
-
-    if (originalItem) {
-      // Lấy giá từ item trong đơn hàng (ưu tiên unitPrice, rồi đến price)
-      unitPrice = Number(originalItem.unitPrice) || Number(originalItem.price) || 0;
-    } else {
-       // CÁCH 2: Nếu không tìm thấy trong order, thử tìm trong bookId (nếu rmaItem.bookId được populate)
-       // (Lưu ý: rmaItem.bookId thường chỉ là ID string nếu chưa populate sâu)
-       if (rmaItem.bookId && typeof rmaItem.bookId === 'object') {
-           unitPrice = Number(rmaItem.bookId.price) || 0;
-       }
-    }
-
-    return sum + (unitPrice * (rmaItem.qty || 0));
-  }, 0);
-
-  // Logic hoàn tiền: 
-  // Nếu trả HẾT đơn -> Hoàn = Tổng đơn (đã trừ giảm giá)
-  // Nếu trả 1 phần -> Hoàn = (Giá món * SL) - (Giảm giá phân bổ - logic này phức tạp, tạm tính theo tỉ lệ hoặc bỏ qua giảm giá)
-  // Ở đây, vì logic của chúng ta là "Trả toàn bộ", nên Refund = Order Total.
-  const finalRefundAmount = orderTotal; 
+  const handleAction = async (status) => {
+      setSubmitting(true);
+      try {
+          let payload = { status };
+          
+          if (status === 'approved' && selectedShipper) {
+              payload.shipperId = selectedShipper; // Gán shipper
+          }
+          if (status === 'processed') {
+              if (!refundProof) { alert("Vui lòng upload ảnh bằng chứng chuyển khoản!"); setSubmitting(false); return; }
+              payload.refundProof = refundProof; // Gửi ảnh UNC
+          }
+          
+          await onUpdateStatus(rma._id, payload);
+      } catch (e) { alert(e.message); } 
+      finally { setSubmitting(false); }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
         
-        {/* Header Modal */}
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-gray-50">
           <div>
-            <h3 className="text-xl font-bold text-gray-800">Chi tiết Đổi / Trả #{rma._id.slice(-6)}</h3>
-            <p className="text-sm text-gray-500">
-              Đơn hàng: <span className="font-mono font-semibold text-blue-600">#{rma.orderId?.code || String(rma.orderId?._id || rma.orderId).slice(-6)}</span>
-              <span className="mx-2">•</span>
-              Ngày tạo: {new Date(rma.createdAt).toLocaleString('vi-VN')}
-            </p>
+            <h3 className="text-xl font-bold text-gray-800">Yêu cầu Đổi / Trả #{rma._id.slice(-6)}</h3>
+            <p className="text-sm text-gray-500">Đơn hàng: <span className="font-mono font-bold text-blue-600">#{rma.orderId?.code}</span></p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full text-gray-500 transition">
-            <X size={24} />
-          </button>
+          <button onClick={onClose}><X size={24} className="text-gray-400 hover:text-gray-600"/></button>
         </div>
 
-        {/* Body Modal (Scrollable) */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50/30">
-          
-          {/* 1. Thông tin Trạng thái & Khách hàng */}
+          {/* Thông tin chính */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-4 rounded-lg border shadow-sm">
-              <h4 className="text-sm font-semibold text-gray-500 mb-3 uppercase">Trạng thái xử lý</h4>
-              <div className={`inline-flex items-center px-3 py-1.5 rounded-full border text-sm font-medium ${STATUS_COLORS[rma.status]}`}>
-                {STATUS_LABELS[rma.status] || rma.status}
-              </div>
-              {rma.adminNote && (
-                 <div className="mt-3 p-3 bg-yellow-50 border border-yellow-100 rounded text-sm text-yellow-800">
-                   <strong>Ghi chú Admin:</strong> {rma.adminNote}
-                 </div>
-              )}
-            </div>
-            
-            <div className="bg-white p-4 rounded-lg border shadow-sm">
-              <h4 className="text-sm font-semibold text-gray-500 mb-3 uppercase">Thông tin Khách hàng</h4>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg">
-                  {(rma.userId?.name || 'U')[0].toUpperCase()}
-                </div>
-                <div>
-                  <div className="font-medium text-gray-900">{rma.userId?.name || 'Khách vãng lai'}</div>
-                  <div className="text-sm text-gray-500">{rma.userId?.email}</div>
-                  <div className="text-sm text-gray-500">{rma.userId?.phone || 'SĐT: (Chưa cập nhật)'}</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 2. Bảng Sản phẩm & Tính tiền (NÂNG CẤP) */}
-          <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b bg-gray-50 flex justify-between items-center">
-              <h4 className="font-semibold text-gray-700 flex items-center gap-2">
-                <Package size={18} /> Sản phẩm yêu cầu trả ({rma.items?.length || 0})
-              </h4>
-            </div>
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-gray-500">
-                <tr>
-                  <th className="px-4 py-2 text-left">Sản phẩm</th>
-                  <th className="px-4 py-2 text-center">SL trả</th>
-                  <th className="px-4 py-2 text-right">Đơn giá</th>
-                  <th className="px-4 py-2 text-right">Thành tiền</th>
-                  <th className="px-4 py-2 text-left">Lý do</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {(rma.items || []).map((item, idx) => {
-                   // Tìm lại item gốc để lấy giá
-                  const originalItem = (rma.orderId?.items || []).find(oi => 
-                      String(oi.bookId?._id || oi.bookId) === String(item.bookId)
-                  );
-                  // Ưu tiên lấy giá lúc mua (trong order), nếu không có thì lấy 0
-                  const unitPrice = Number(originalItem?.unitPrice) || Number(originalItem?.price) || 0;
-                  const title = item.title || originalItem?.title || 'Sản phẩm không xác định';
-
-                  return (
-                    <tr key={idx}>
-                      <td className="px-4 py-3 font-medium text-gray-900">{title}</td>
-                      <td className="px-4 py-3 text-center font-mono text-gray-600">x{item.qty}</td>
-                      <td className="px-4 py-3 text-right text-gray-600">{money(unitPrice)}</td>
-                      <td className="px-4 py-3 text-right font-medium text-gray-900">{money(unitPrice * item.qty)}</td>
-                      <td className="px-4 py-3 text-gray-500 text-xs italic max-w-[150px] truncate" title={item.reason}>
-                        {item.reason}
-                      </td>
-                    </tr>
-                   )
-                })}
-              </tbody>
-              
-              {/* FOOTER TÍNH TIỀN */}
-              <tfoot className="bg-gray-50 border-t text-sm">
-                 {/* Hiển thị giảm giá nếu có */}
-                 {orderDiscount > 0 && (
-                   <tr>
-                     <td colSpan={3} className="px-4 py-1 text-right text-green-600 pt-3">
-                       Đã áp dụng mã giảm giá:
-                     </td>
-                     <td className="px-4 py-1 text-right font-medium text-green-600 pt-3">
-                       -{money(orderDiscount)}
-                     </td>
-                     <td></td>
-                   </tr>
+             {/* Cột 1: Thông tin Ngân hàng (MỚI) */}
+             <div className="bg-white p-4 rounded-xl border shadow-sm">
+                 <h4 className="text-sm font-bold text-gray-500 mb-3 uppercase flex items-center gap-2">
+                     <CreditCard size={16}/> Thông tin nhận tiền (Khách)
+                 </h4>
+                 {rma.bankInfo ? (
+                     <div className="space-y-2 text-sm">
+                         <div className="flex justify-between border-b border-dashed pb-2">
+                             <span className="text-gray-500">Ngân hàng:</span>
+                             <span className="font-bold">{rma.bankInfo.bankName}</span>
+                         </div>
+                         <div className="flex justify-between border-b border-dashed pb-2">
+                             <span className="text-gray-500">Số tài khoản:</span>
+                             <span className="font-bold font-mono text-blue-600 text-lg">{rma.bankInfo.accountNo}</span>
+                         </div>
+                         <div className="flex justify-between">
+                             <span className="text-gray-500">Chủ tài khoản:</span>
+                             <span className="font-bold uppercase">{rma.bankInfo.accountName}</span>
+                         </div>
+                     </div>
+                 ) : (
+                     <p className="text-gray-400 italic">Khách không cung cấp thông tin ngân hàng.</p>
                  )}
-                 
-                 <tr className="text-base">
-                   <td colSpan={3} className="px-4 py-3 text-right font-bold text-gray-900">
-                     Tổng tiền hoàn lại:
-                   </td>
-                   <td className="px-4 py-3 text-right font-bold text-blue-600 text-lg">
-                     {money(finalRefundAmount)}
-                   </td>
-                   <td></td>
-                 </tr>
-              </tfoot>
-            </table>
+             </div>
+
+             {/* Cột 2: Sản phẩm */}
+             <div className="bg-white p-4 rounded-xl border shadow-sm">
+                 <h4 className="text-sm font-bold text-gray-500 mb-3 uppercase flex items-center gap-2">
+                     <Package size={16}/> Sản phẩm trả lại
+                 </h4>
+                 <div className="space-y-2 max-h-[150px] overflow-y-auto">
+                     {rma.items?.map((item, idx) => (
+                         <div key={idx} className="flex justify-between text-sm border-b border-gray-100 pb-2">
+                             <span className="font-medium text-gray-800">{item.title}</span>
+                             <span className="font-mono text-gray-500">x{item.qty}</span>
+                         </div>
+                     ))}
+                 </div>
+                 <div className="mt-3 pt-2 border-t flex justify-between font-bold text-gray-900">
+                     <span>Số tiền cần hoàn (dự kiến):</span>
+                     <span className="text-blue-600">{money(orderTotal)}</span>
+                 </div>
+             </div>
           </div>
 
-          {/* 3. Hình ảnh & Ghi chú */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Ghi chú */}
-            <div className="md:col-span-1 bg-white p-4 rounded-lg border shadow-sm h-fit">
-              <h4 className="text-sm font-semibold text-gray-500 mb-2 uppercase">Ghi chú của khách</h4>
-              <p className="text-gray-700 bg-gray-50 p-3 rounded-lg border min-h-[100px] italic text-sm">
-                "{rma.customerNote || 'Không có ghi chú thêm.'}"
-              </p>
-            </div>
-
-            {/* Hình ảnh */}
-            <div className="md:col-span-2 bg-white p-4 rounded-lg border shadow-sm">
-              <h4 className="text-sm font-semibold text-gray-500 mb-3 uppercase flex items-center justify-between">
-                <span>Hình ảnh minh chứng ({rma.images?.length || 0})</span>
-                <span className="text-xs normal-case font-normal text-gray-400">Click để xem ảnh gốc</span>
-              </h4>
-              {(!rma.images || rma.images.length === 0) ? (
-                <div className="text-center py-8 text-gray-400 italic bg-gray-50 rounded-lg border border-dashed">
-                  Khách hàng không tải lên hình ảnh nào.
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                  {rma.images.map((img, idx) => (
-                    <a 
-                      key={idx} 
-                      href={getImageUrl(img)} 
-                      target="_blank" 
-                      rel="noreferrer"
-                      className="group relative aspect-square bg-gray-100 rounded-lg overflow-hidden border hover:shadow-md transition"
-                    >
-                      <img 
-                        src={getImageUrl(img)} 
-                        alt={`evidence-${idx}`} 
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
-                        <ExternalLink className="text-white drop-shadow-md" size={20} />
-                      </div>
-                    </a>
+          {/* Hình ảnh bằng chứng */}
+          <div className="bg-white p-4 rounded-xl border shadow-sm">
+              <h4 className="text-sm font-bold text-gray-500 mb-3 uppercase">Hình ảnh / Lý do lỗi</h4>
+              <div className="mb-2 text-sm text-gray-700 bg-gray-50 p-2 rounded border italic">"{rma.customerNote}"</div>
+              <div className="flex gap-2 overflow-x-auto">
+                  {rma.images?.map((img, i) => (
+                      <a key={i} href={getImageUrl(img)} target="_blank" className="block w-20 h-20 rounded border overflow-hidden shrink-0">
+                          <img src={getImageUrl(img)} className="w-full h-full object-cover"/>
+                      </a>
                   ))}
-                </div>
-              )}
-            </div>
+              </div>
           </div>
-        </div>
 
-        {/* Footer Actions */}
-        <div className="px-6 py-4 border-t bg-white flex justify-between items-center">
-            <div className="text-xs text-gray-400 italic">
-              ID: {rma._id}
-            </div>
-            <div className="flex gap-3">
+          {/* --- KHU VỰC XỬ LÝ (ACTION ZONE) --- */}
+          <div className="bg-blue-50 p-5 rounded-xl border border-blue-100">
+              <h4 className="text-sm font-bold text-blue-800 mb-4 uppercase">Xử lý yêu cầu</h4>
+              
+              {/* STATE: REQUESTED (Cần chọn shipper) */}
               {rma.status === 'requested' && (
-                <>
-                  <button 
-                    onClick={() => onUpdateStatus(rma._id, 'rejected')}
-                    className="px-4 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-medium transition"
-                  >
-                    Từ chối yêu cầu
-                  </button>
-                  <button 
-                    onClick={() => onUpdateStatus(rma._id, 'approved')}
-                    className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 font-medium shadow-sm hover:shadow transition"
-                  >
-                    <CheckCircle size={18} className="inline mr-2 mb-0.5"/>
-                    Duyệt yêu cầu
-                  </button>
-                </>
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Chọn Shipper đi lấy hàng:</label>
+                          <select className="input w-full" value={selectedShipper} onChange={e=>setSelectedShipper(e.target.value)}>
+                              <option value="">-- Chọn nhân viên --</option>
+                              {shipperList.map(s => <option key={s._id} value={s._id}>{s.name} - {s.phone}</option>)}
+                          </select>
+                      </div>
+                      <div className="flex gap-3">
+                          <button onClick={()=>handleAction('approved')} disabled={submitting} className="btn bg-green-600 text-white hover:bg-green-700 shadow-md">
+                              <CheckCircle size={18} className="inline mr-2"/> Duyệt & Gán Shipper
+                          </button>
+                          <button onClick={()=>handleAction('rejected')} disabled={submitting} className="btn bg-white border border-red-200 text-red-600 hover:bg-red-50">
+                              Từ chối
+                          </button>
+                      </div>
+                  </div>
               )}
-              
-              {rma.status === 'approved' && (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-orange-600 font-medium bg-orange-50 px-3 py-2 rounded-lg border border-orange-100 flex items-center gap-2">
-                    <AlertTriangle size={16}/> Đang chờ khách gửi hàng
-                  </span>
-                  <button 
-                    onClick={() => onUpdateStatus(rma._id, 'processed')}
-                    className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 font-medium shadow-sm hover:shadow transition"
-                  >
-                    <CheckCircle size={18} className="inline mr-2 mb-0.5"/>
-                    Đã nhận hàng & Hoàn tiền
-                  </button>
-                </div>
+
+              {/* STATE: APPROVED/PICKING (Đang chờ hàng về) */}
+              {['approved', 'picking'].includes(rma.status) && (
+                  <div className="space-y-4">
+                      <div className="flex items-center gap-2 text-orange-700 font-medium bg-orange-100 px-3 py-2 rounded-lg w-fit">
+                          <Truck size={18}/> Đang chờ Shipper lấy hàng về kho...
+                      </div>
+                      <div className="pt-4 border-t border-blue-200">
+                          <label className="block text-sm font-bold text-gray-700 mb-2">Đã nhận hàng? Tải ảnh chuyển khoản hoàn tiền (UNC):</label>
+                          <div className="w-full max-w-md bg-white p-3 rounded-xl border border-dashed border-gray-300">
+                              <ImageUploader value={refundProof} onChange={setRefundProof} />
+                          </div>
+                          <button onClick={()=>handleAction('processed')} disabled={submitting || !refundProof} className="mt-4 btn bg-blue-600 text-white hover:bg-blue-700 shadow-lg">
+                              <CreditCard size={18} className="inline mr-2"/> Xác nhận Đã Hoàn Tiền
+                          </button>
+                      </div>
+                  </div>
               )}
-              
-              {['processed', 'rejected', 'cancelled'].includes(rma.status) && (
-                <button onClick={onClose} className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg font-medium">
-                  Đóng
-                </button>
+
+              {rma.status === 'processed' && (
+                  <div className="text-green-700 font-bold flex items-center gap-2">
+                      <CheckCircle size={20}/> Yêu cầu đã được xử lý hoàn tất.
+                  </div>
               )}
-            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -305,22 +218,12 @@ export default function RMAList({ searchTerm }) {
     });
   }, [rows, searchTerm]);
 
-  const handleUpdateStatus = async (id, newStatus) => {
-    let note = '';
-    if (newStatus === 'rejected') {
-      note = prompt("Nhập lý do từ chối (tùy chọn):");
-      if (note === null) return; 
-    }
-    
-    if (!window.confirm(`Xác nhận chuyển trạng thái thành "${STATUS_LABELS[newStatus]}"?`)) return;
-    
-    try {
-      await rmaService.update(id, { status: newStatus, reason: note });
-      setSelectedRMA(null); 
-      load(); 
-    } catch (err) {
-      alert("Lỗi cập nhật: " + err.message);
-    }
+  const handleUpdateStatus = async (id, payload) => {
+      try {
+          await rmaService.update(id, payload); // Nhớ sửa service update để nhận object payload
+          load();
+          setSelectedRMA(null);
+      } catch(e) { alert(e.message); }
   };
 
   if (loading) return <div className="p-4">Đang tải yêu cầu đổi/trả...</div>;
