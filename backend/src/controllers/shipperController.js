@@ -3,6 +3,7 @@ import { Order } from '../models/Order.js';
 import { Book } from '../models/Book.js';
 import { User } from '../models/User.js';
 import { RMA } from '../models/RMA.js';
+import { Transaction } from '../models/Transaction.js';
 
 // Helper ghi log
 const logShip = (o, status, note) => {
@@ -24,6 +25,7 @@ export const getMyTasks = async (req, res) => {
             'shipping.shipperId': req.user._id,
         })
         .populate('userId', 'name email phone')
+        .select('code items shippingAddress payment total status updatedAt') 
         .sort({ updatedAt: -1 })
         .lean();
         res.json(tasks);
@@ -61,14 +63,26 @@ export const completeDelivery = async (req, res) => {
         o.status = 'delivered';
         o.deliveredAt = new Date();
         
-        // Lưu ảnh bằng chứng
         o.shipping = o.shipping || {};
         if (proofImage) o.shipping.proofImage = proofImage;
 
+        // ✅ LOGIC MỚI: NẾU LÀ COD -> GHI NHẬN DOANH THU
         if (o.payment.method === 'cod' && o.payment.status === 'unpaid') {
             o.payment.status = 'paid';
             o.payment.capturedAt = new Date();
             pushHistory(o, 'paid', 'shipper', 'Shipper thu tiền COD');
+
+            // [MỚI] Tạo Transaction
+            await Transaction.create({
+                orderId: o._id,
+                userId: o.userId,
+                type: 'charge', // Tiền vào
+                amount: Number(o.total?.grand || o.pricing?.grandTotal || 0),
+                method: 'cod',
+                status: 'succeeded',
+                reason: `Shipper ${req.user.name} thu hộ COD`,
+                at: new Date()
+            });
         }
 
         logShip(o, 'delivered', 'Giao thành công');
@@ -195,9 +209,9 @@ export const confirmReturn = async (req, res) => {
 export const getMyRMATasks = async (req, res) => {
     try {
         const rmas = await RMA.find({ 
-            returnShipperId: req.user._id,
-            status: { $in: ['picking', 'picked'] }
-        })
+        returnShipperId: req.user._id,
+        status: { $in: ['picking', 'picked', 'returned_to_warehouse', 'processed', 'refunded'] }
+    })
         .populate('userId', 'name phone addresses') // Lấy thông tin khách
         .populate({
             path: 'orderId',

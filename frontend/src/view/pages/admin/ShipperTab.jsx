@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo} from 'react';
 import { 
     Truck, MapPin, Phone, Package, RefreshCw, X, RotateCcw, 
-    ArchiveRestore, Check, AlertCircle, Calendar, User, Wallet 
+    ArchiveRestore, Check, AlertCircle, Calendar, User, Wallet, ChevronLeft, ChevronRight, ShoppingBag
 } from 'lucide-react';
 import ImageUploader from './ImageUploader';
 import { useUI } from '@/store/useUI';
@@ -12,12 +12,15 @@ const FAIL_REASONS = [
     "Khách hẹn giao lại sau", "Khách từ chối nhận hàng (Boom)"
 ];
 
+const ITEMS_PER_PAGE = 5;
+
 export default function ShipperTab() {
   const { showToast } = useUI();
   const [activeTab, setActiveTab] = useState('delivery'); 
   const [deliveryTasks, setDeliveryTasks] = useState([]);
   const [rmaTasks, setRmaTasks] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
   
   const [modal, setModal] = useState(null); 
   const [failReason, setFailReason] = useState(FAIL_REASONS[0]);
@@ -38,14 +41,34 @@ export default function ShipperTab() {
   };
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => { setPage(1); }, [activeTab]);
 
   const deliveryList = useMemo(() => deliveryTasks.filter(t => ['ready_to_pick', 'shipping', 'delivery_failed', 'returned'].includes(t.status)), [deliveryTasks]);
   const rmaList = useMemo(() => rmaTasks.filter(t => ['picking', 'picked'].includes(t.status)), [rmaTasks]);
   const historyList = useMemo(() => {
+      // Đơn GIAO đã xong
       const doneDel = deliveryTasks.filter(t => ['delivered', 'completed', 'cancelled', 'refunded'].includes(t.status));
+      
       const doneRMA = rmaTasks.filter(t => ['returned_to_warehouse', 'processed', 'refunded'].includes(t.status));
-      return [...doneDel, ...doneRMA.map(r => ({...r, isRMA: true}))].sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+      
+      const fmtRMA = doneRMA.map(r => ({ 
+          ...r, 
+          isRMA: true, 
+          // Fallback mã code nếu r.orderId null
+          code: r.orderId?.code || r._id, 
+          status: r.status === 'returned_to_warehouse' ? 'Đã trả kho' : r.status 
+      }));
+
+      // Gộp và sắp xếp
+      return [...doneDel, ...fmtRMA].sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }, [deliveryTasks, rmaTasks]);
+
+    const currentList = activeTab === 'delivery' ? deliveryList 
+                    : activeTab === 'rma' ? rmaList 
+                    : historyList;
+  
+    const totalPages = Math.ceil(currentList.length / ITEMS_PER_PAGE);
+    const paginatedList = currentList.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
   const confirmAction = async () => {
       if (!modal) return;
@@ -99,9 +122,10 @@ export default function ShipperTab() {
           address = sa ? `${sa.detail}, ${sa.ward}, ${sa.district}` : 'Chưa cập nhật địa chỉ';
       }
 
-      const isCod = !isRMA && item.payment?.method === 'cod' && item.payment?.status === 'unpaid';
-      const total = isRMA ? 0 : (item.total?.grand || 0);
-      const code = isRMA ? item.orderId?.code : (item.code || item._id);
+    const isCod = !isRMA && item.payment?.method === 'cod' && item.payment?.status === 'unpaid';
+    const total = isCod ? (item.total?.grand || 0) : 0;
+    const code = isRMA ? item.orderId?.code : (item.code || item._id);
+
 
       return (
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4 relative overflow-hidden group">
@@ -146,13 +170,33 @@ export default function ShipperTab() {
                       <MapPin size={16} className="text-gray-400 shrink-0 mt-0.5"/>
                       <p className="text-sm text-gray-600 font-medium leading-snug">{address}</p>
                   </div>
-                  {isRMA && item.items && (
+                {/* 1. NẾU LÀ ĐƠN GIAO HÀNG (!isRMA) -> Hiện "Chi tiết đơn hàng" */}
+                {!isRMA && item.items && item.items.length > 0 && (
                     <div className="mt-3 pt-2 border-t border-gray-200">
-                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Sản phẩm thu hồi:</p>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1 flex items-center gap-1">
+                            <Package size={10}/> Chi tiết đơn hàng:
+                        </p>
                         {item.items.map((prod, idx) => (
                             <div key={idx} className="flex justify-between text-xs text-gray-700 mb-1">
-                                <span className="truncate w-4/5">{prod.title}</span>
+                                <span className="truncate w-3/4 font-medium">
+                                    {prod.title || prod.bookId?.title || 'Sản phẩm'}
+                                </span>
                                 <span className="font-bold">x{prod.qty}</span>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* 2. NẾU LÀ ĐƠN THU HỒI (isRMA) -> Chỉ hiện "Sản phẩm thu hồi" */}
+                {isRMA && item.items && (
+                    <div className="mt-3 pt-2 border-t border-gray-200">
+                        <p className="text-[10px] font-bold text-orange-600 uppercase mb-1 flex items-center gap-1">
+                            <RotateCcw size={10}/> Sản phẩm thu hồi:
+                        </p>
+                        {item.items.map((prod, idx) => (
+                            <div key={idx} className="flex justify-between text-xs text-gray-700 mb-1">
+                                <span className="truncate w-4/5 font-medium">{prod.title}</span>
+                                <span className="font-bold text-orange-600">x{prod.qty}</span>
                             </div>
                         ))}
                     </div>
@@ -201,19 +245,58 @@ export default function ShipperTab() {
       </div>
       
       <div className="p-2 bg-white border-b flex gap-2 shrink-0">
-          {['delivery', 'rma', 'history'].map(id => (
-              <button key={id} onClick={()=>setActiveTab(id)} 
-                  className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${activeTab===id ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' : 'text-gray-500 hover:bg-gray-50'}`}>
-                  {id==='delivery'?'Giao hàng':id==='rma'?'Thu hồi':'Lịch sử'} <span className="text-xs opacity-70 ml-1">({id==='delivery'?deliveryList.length:id==='rma'?rmaList.length:''})</span>
+          {[
+              { id: 'delivery', label: 'Giao hàng', count: deliveryList.length }, 
+              { id: 'rma', label: 'Thu hồi', count: rmaList.length },
+              { id: 'history', label: 'Lịch sử', count: historyList.length } // ✅ Đã có count cho lịch sử
+          ].map(t => (
+              <button key={t.id} onClick={() => setActiveTab(t.id)} 
+                  className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                      activeTab === t.id 
+                      ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' 
+                      : 'text-gray-500 hover:bg-gray-50'
+                  }`}
+              >
+                  {t.label} <span className="text-xs opacity-70 ml-1">({t.count})</span>
               </button>
           ))}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-          {activeTab==='delivery' && (deliveryList.length ? deliveryList.map(t => <Card key={t._id} item={t}/>) : <Empty text="Hết đơn giao!"/>)}
-          {activeTab==='rma' && (rmaList.length ? rmaList.map(t => <Card key={t._id} item={t} isRMA/>) : <Empty text="Không có đơn thu hồi."/>)}
-          {activeTab==='history' && (historyList.length ? historyList.map(t => <div key={t._id} className="opacity-60 grayscale"><Card item={t} isRMA={t.isRMA}/></div>) : <Empty text="Chưa có lịch sử."/>)}
+        {paginatedList.length > 0 ? (
+            paginatedList.map(item => (
+                <Card 
+                    key={item._id} 
+                    item={item} 
+                    isRMA={activeTab === 'rma' || (activeTab === 'history' && item.isRMA)} 
+                />
+            ))
+        ) : (
+            <Empty text="Không có đơn hàng nào."/>
+        )}
       </div>
+
+        {totalPages > 1 && (
+            <div className="p-3 bg-white border-t shrink-0 flex justify-center gap-4 items-center z-10">
+                <button 
+                    disabled={page === 1} 
+                    onClick={() => setPage(p => p - 1)} 
+                    className="p-2 rounded-lg border bg-gray-50 hover:bg-gray-100 disabled:opacity-30 transition"
+                >
+                    <ChevronLeft size={20}/>
+                </button>
+                <span className="text-sm font-bold text-gray-600">
+                    Trang {page} / {totalPages}
+                </span>
+                <button 
+                    disabled={page === totalPages} 
+                    onClick={() => setPage(p => p + 1)} 
+                    className="p-2 rounded-lg border bg-gray-50 hover:bg-gray-100 disabled:opacity-30 transition"
+                >
+                    <ChevronRight size={20}/>
+                </button>
+            </div>
+        )}
 
       {modal && (
          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm" onClick={()=>setModal(null)}>

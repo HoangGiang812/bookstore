@@ -5,8 +5,8 @@ export const listTransactions = async (req, res) => { // <-- Đây là 'named ex
   try {
     const transactions = await Transaction.find({})
       .sort({ createdAt: -1 })
+      .populate('userId', 'name email phone avatarUrl avatar') // Thêm avatarUrl và avatar
       .populate('orderId', 'code')
-      .populate('userId', 'name email')
       .lean();
       
     res.json({ items: transactions });

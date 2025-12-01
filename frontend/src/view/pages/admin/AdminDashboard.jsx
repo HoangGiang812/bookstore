@@ -27,11 +27,11 @@ const MENU_CONFIG = [
   { key: 'orders',      label: 'Quản lý Đơn hàng',    icon: ShoppingCart,roles: ['admin', 'staff'] },
   { key: 'products',    label: 'Sản phẩm',            icon: BookOpen,    roles: ['admin', 'staff'] },
   { key: 'categories',  label: 'Danh mục',            icon: Tag,         roles: ['admin', 'staff'] },
-  { key: 'collections', label: 'Bộ sưu tập',          icon: LayoutGrid,  roles: ['admin'] },
+  { key: 'collections', label: 'Bộ sưu tập',          icon: LayoutGrid,  roles: ['admin', 'staff'] },
   { key: 'authors',     label: 'Tác giả',             icon: Users,       roles: ['admin', 'staff'] },
   { key: 'posts',       label: 'Blog / Bài viết',     icon: BookOpen,    roles: ['admin', 'staff'] },
-  { key: 'shipper',     label: 'Giao hàng',           icon: Truck,       roles: ['admin', 'shipper'] },
-  { key: 'payments',    label: 'Tài chính',           icon: CreditCard,  roles: ['admin'] },
+  { key: 'shipper',     label: 'Giao hàng',           icon: Truck,       roles: ['shipper'] },
+  { key: 'payments',    label: 'Tài chính',           icon: CreditCard,  roles: ['admin', 'staff'] },
   { key: 'rma',         label: 'Đổi / Trả hàng',      icon: RotateCcw,   roles: ['admin', 'staff'] },
   { key: 'coupons',     label: 'Khuyến mãi',          icon: Gift,        roles: ['admin', 'staff'] },
   { key: 'users',       label: 'Phân quyền',          icon: Users,       roles: ['admin'] },
@@ -88,7 +88,7 @@ export default function AdminDashboard() {
     // Truyền prop searchTerm rỗng vì đã xóa thanh search global
     const props = { searchTerm: '' };
     switch (activeTab) {
-      case 'overview':    return <OverviewTab />;
+      case 'overview':    return <OverviewTab setActiveTab={setActiveTab} />;
       case 'products':    return <ProductsPage {...props} />;
       case 'categories':  return <CategoryPage {...props} />;
       case 'orders':      return <OrdersTab {...props} />;

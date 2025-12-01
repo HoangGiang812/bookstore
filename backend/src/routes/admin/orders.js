@@ -13,6 +13,7 @@ import {
   // Thanh toán
   setPaymentStatus,
   assignShipper,
+  confirmRestock,
 } from '../../controllers/admin/orderAdminController.js';
 
 const r = Router();
@@ -40,5 +41,6 @@ r.post('/:id/refund', requireAdmin, refundOrder);
 r.delete('/:id', requireAdmin, deleteOrder);
 
 r.post('/:id/assign', ...guardStaff, assignShipper);
+r.post('/:id/restock', requireAdmin, confirmRestock);
 
 export default r;

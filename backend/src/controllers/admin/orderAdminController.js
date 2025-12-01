@@ -324,50 +324,36 @@ export const setPaymentStatus = async (req, res) => {
   const oldStatus = String(o.payment?.status || 'unpaid').toLowerCase();
 
   // Cập nhật Order
-  o.payment = {
-    ...(o.payment || {}),
-    status: wanted,
-  };
-
-  if (wanted === 'paid') {
-    o.payment.capturedAt = o.payment.capturedAt || new Date();
-  } else {
-    if (o.payment.capturedAt) delete o.payment.capturedAt;
-  }
-
-  pushHistory(
-    o,
-    'payment_status',
-    req.user?.name || req.user?.email || 'admin',
-    `Admin set ${wanted}`
-  );
-
+  o.payment = { ...(o.payment || {}), status: wanted };
+  if (wanted === 'paid') o.payment.capturedAt = new Date();
+  
+  // Ghi log lịch sử đơn hàng
+  pushHistory(o, 'payment_status', req.user?.name || 'admin', `Admin set ${wanted}`);
   await o.save();
 
-  // ✅ LOGIC MỚI: TẠO TRANSACTION
+  // ✅ [MỚI] TỰ ĐỘNG TẠO TRANSACTION NẾU ĐÃ THANH TOÁN
   try {
-    if (wanted === 'paid' && oldStatus !== 'paid') {
-      // Chỉ tạo transaction khi chuyển sang 'paid'
-      const totalGrand = Number(o.total?.grand) || 0;
-
-      await Transaction.create({
-        orderId: o._id,
-        userId: o.userId,
-        type: 'charge', // Ghi nhận là một khoản thu
-        amount: totalGrand,
-        method: o.payment?.method || 'cod',
-        status: 'succeeded',
-        reason: 'Admin marked as paid',
-        at: new Date(),
-      });
-    }
-    // (Chúng ta không tạo transaction khi 'unpaid' hoặc 'refund')
-    // (Refund đã được xử lý trong hàm 'refundOrder')
-  } catch (txError) {
-    console.error("Lỗi khi tạo transaction thanh toán:", txError);
-    // Không cần báo lỗi cho user, vì việc chính (cập nhật order) đã thành công
+      const wanted = req.body.status; // 'paid' hoặc 'unpaid'
+      // Chỉ tạo transaction nếu chuyển sang 'paid' (Thu tiền)
+      if (wanted === 'paid') {
+          // Kiểm tra xem đã có transaction charge cho đơn này chưa để tránh trùng
+          const exist = await Transaction.findOne({ orderId: o._id, type: 'charge' });
+          if (!exist) {
+              await Transaction.create({
+                  orderId: o._id,
+                  userId: o.userId,
+                  type: 'charge',
+                  amount: Number(o.total?.grand || o.pricing?.grandTotal || 0),
+                  method: o.payment?.method || 'manual',
+                  status: 'succeeded',
+                  reason: 'Admin xác nhận thanh toán',
+                  at: new Date()
+              });
+          }
+      }
+  } catch (err) {
+      console.error("Lỗi tạo transaction:", err);
   }
-
   return res.json(o.toObject());
 };
 

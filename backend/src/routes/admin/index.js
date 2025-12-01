@@ -12,6 +12,7 @@ import {
 
 import { upload, importBooksCSV } from '../../controllers/admin/bookImportController.js';
 import { dashboardKpis } from '../../controllers/admin/dashboardController.js';
+import { OverviewCtrl } from '../../controllers/admin/overviewController.js';
 import { 
   list,addOrderNote, refundOrder, approveCancel, rejectCancel 
 } from '../../controllers/admin/orderAdminController.js';
@@ -42,6 +43,7 @@ r.use(attachUserFromToken);
 
 // Dashboard
 r.get('/dashboard', ...guardStaff, dashboardKpis);
+r.get('/overview', ...guardStaff, OverviewCtrl.overview);
 
 /** ===== Books ===== */
 // Staff: Được xem, sửa, cập nhật tồn kho, bật/tắt nổi bật

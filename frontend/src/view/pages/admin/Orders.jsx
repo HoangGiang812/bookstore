@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Eye, RefreshCw, Trash2, X, User, MapPin, CreditCard, Check, Ban, UserPlus, Truck, Phone, Package } from 'lucide-react';
+import { Eye, RefreshCw, Trash2, X, User, MapPin, CreditCard, Check, Ban, UserPlus, Truck, Phone, Package, Clock, Send} from 'lucide-react';
 import { listShippers, assignShipper } from '@/services/admin';
 import api, { getImageUrl } from '@/services/api';
 import { useUI } from '@/store/useUI';
@@ -542,21 +542,79 @@ export default function Orders() {
                       </div>
 
                       {/* Ghi chú & Lịch sử */}
-                      <div className="border rounded-xl p-4 bg-gray-50/50">
-                          <h4 className="font-bold text-gray-800 mb-2 text-xs uppercase tracking-wider text-gray-500">Ghi chú & Lịch sử</h4>
-                          <AddNote onAdd={(text) => addOrderNote(selectedOrder._id, text)} />
-                          <div className="mt-3 space-y-3 pl-3 border-l-2 border-gray-200 max-h-32 overflow-y-auto custom-scrollbar">
-                              {(selectedOrder.history || []).map((h, i) => (
-                                  <div key={i} className="relative">
-                                      <div className="absolute -left-[17px] top-1.5 w-2 h-2 bg-gray-400 rounded-full ring-2 ring-white"></div>
-                                      <p className="text-[10px] text-gray-400">{new Date(h.at).toLocaleString('vi-VN')}</p>
-                                      <p className="text-xs text-gray-700">
-                                          <span className="font-bold capitalize">{h.by}</span>: {h.note || h.type}
-                                      </p>
-                                  </div>
-                              ))}
-                          </div>
-                      </div>
+                      <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-[400px]">
+                        {/* Header */}
+                        <div className="px-5 py-3 border-b bg-gray-50 flex justify-between items-center rounded-t-xl">
+                            <h4 className="font-bold text-gray-700 text-sm uppercase tracking-wide flex items-center gap-2">
+                                <Clock size={16}/> Nhật ký hoạt động
+                            </h4>
+                            <span className="text-xs text-gray-400 bg-white px-2 py-1 rounded border">
+                                {selectedOrder.history?.length || 0} sự kiện
+                            </span>
+                        </div>
+
+                        {/* Timeline Body (Cuộn) */}
+                        <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-gray-50/30">
+                            <div className="relative pl-4 space-y-6">
+                                {/* Đường kẻ dọc */}
+                                <div className="absolute left-[23px] top-2 bottom-2 w-[2px] bg-gray-200 -z-10"></div>
+
+                                {(selectedOrder.history || []).map((h, i) => {
+                                    // Logic chọn Icon và Màu sắc cho từng loại sự kiện
+                                    let icon = <User size={12}/>;
+                                    let color = "bg-gray-100 border-gray-300 text-gray-500";
+                                    let title = "Hệ thống";
+
+                                    if (h.type.includes('create')) { icon=<Package size={12}/>; color="bg-blue-100 border-blue-300 text-blue-600"; title="Tạo đơn"; }
+                                    else if (h.type.includes('paid')) { icon=<CreditCard size={12}/>; color="bg-green-100 border-green-300 text-green-600"; title="Thanh toán"; }
+                                    else if (h.type.includes('ship') || h.type.includes('assign')) { icon=<Truck size={12}/>; color="bg-indigo-100 border-indigo-300 text-indigo-600"; title="Vận chuyển"; }
+                                    else if (h.type.includes('cancel')) { icon=<X size={12}/>; color="bg-red-100 border-red-300 text-red-600"; title="Hủy đơn"; }
+                                    else if (h.note && !h.type) { icon=<MessageSquare size={12}/>; color="bg-yellow-100 border-yellow-300 text-yellow-600"; title="Ghi chú"; }
+
+                                    return (
+                                        <div key={i} className="flex gap-4 group">
+                                            {/* Icon Tròn */}
+                                            <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 shadow-sm bg-white ${color} z-10`}>
+                                                {icon}
+                                            </div>
+                                            
+                                            {/* Nội dung */}
+                                            <div className="flex-1 bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <span className="font-bold text-xs text-gray-800 capitalize flex items-center gap-1">
+                                                        {h.by === 'user' ? 'Khách hàng' : h.by} 
+                                                        {h.by === 'admin' && <span className="bg-blue-100 text-blue-600 px-1.5 rounded text-[9px]">QT</span>}
+                                                    </span>
+                                                    <span className="text-[10px] text-gray-400 font-mono">{new Date(h.at).toLocaleString('vi-VN')}</span>
+                                                </div>
+                                                <p className="text-sm text-gray-600 leading-snug">{h.note || h.type}</p>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Footer: Input Ghi chú */}
+                        <div className="p-4 border-t bg-white rounded-b-xl">
+                            <div className="relative">
+                                <input 
+                                    className="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:bg-white transition outline-none"
+                                    placeholder="Viết ghi chú nội bộ..."
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            addOrderNote(selectedOrder._id, e.target.value);
+                                            e.target.value = '';
+                                        }
+                                    }}
+                                />
+                                <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-sm">
+                                    <Send size={16}/>
+                                </button>
+                            </div>
+                            <p className="text-[10px] text-gray-400 mt-2 text-center">Nhấn Enter để gửi ghi chú (Chỉ Admin thấy)</p>
+                        </div>
+                    </div>
 
                   </div>
               </div>
