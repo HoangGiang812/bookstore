@@ -8,7 +8,7 @@ import {
 } from '../../services/orders';
 import { useAuth } from '../../store/useAuth';
 import { useUI } from '../../store/useUI';
-import { getImageUrl } from '../../services/api.js';
+import { getImageUrl, api } from '../../services/api.js';
 import ImageUploader from './admin/ImageUploader.jsx';
 import { X, Truck, Package, RefreshCcw, AlertTriangle, CheckCircle, CreditCard, Smartphone, DollarSign, Clock, XCircle, RefreshCw, ChevronLeft, ChevronRight, Mail, Facebook, PhoneCall } from 'lucide-react';
 
@@ -364,16 +364,34 @@ export default function Orders() {
   };
 
   // 4. Logic Thanh toán
-  const proceedToPay = (method) => {
+  const proceedToPay = async (method) => { // ✅ Thêm async
     if (!payOrder) return;
     const oid = payOrder._id || payOrder.id;
     const code = payOrder.code;
-    setPayOpen(false);
+    
+    // Đóng modal trước
+    setPayOpen(false); 
     setPayOrder(null);
+
     if (method === 'bank') {
       nav(`/payment-bank?orderId=${encodeURIComponent(oid)}&code=${encodeURIComponent(code)}`);
-    } else {
-      alert('Tính năng đang bảo trì. Vui lòng chọn chuyển khoản.');
+    } else if (method === 'momo') { // ✅ XỬ LÝ MOMO
+      try {
+          showToast({ type: 'info', title: 'Đang tạo link thanh toán...', duration: 2000 });
+          
+          // Gọi API tạo link Momo
+          const res = await api.post('/api/payments/momo/create', { orderId: oid });
+          
+          if (res.payUrl) {
+              // Chuyển hướng sang trang thanh toán Momo
+              window.location.href = res.payUrl;
+          } else {
+              showToast({ type: 'error', title: 'Lỗi', msg: 'Không lấy được link thanh toán' });
+          }
+      } catch (e) {
+          console.error(e);
+          showToast({ type: 'error', title: 'Lỗi', msg: e.message || 'Lỗi kết nối Momo' });
+      }
     }
   };
 

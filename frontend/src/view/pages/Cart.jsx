@@ -1,7 +1,7 @@
 // src/view/pages/Cart.jsx
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { Minus, Plus, Trash2, CheckSquare, Square, XCircle, CheckCircle, X, Ticket } from 'lucide-react';
+import { Minus, Plus, Trash2, CheckSquare, Square, XCircle, CheckCircle, X, Ticket, Wallet, CreditCard } from 'lucide-react';
 
 import { useCart } from '../../store/useCart';
 import { useAuth } from '../../store/useAuth';
@@ -535,13 +535,6 @@ export default function CartPage() {
     const selAddr = addresses.find(a => String(a.id) === String(addressId)) || null;
     if (!selAddr) return setOpenAddrModal(true);
 
-    // for (const item of selectedItems) {
-    //   if (Number(item.stock || 0) < Number(item.quantity || 1)) {
-    //     setErrMsg(`Sản phẩm "${item.title}" đã hết hàng. Vui lòng kiểm tra lại.`);
-    //     return; // Dừng lại
-    //   }
-    // }
-
     const items = selectedItems.map((i) => ({
       bookId: i.id || i.bookId,
       qty: Math.max(1, Number(i.quantity || 1)),
@@ -561,46 +554,70 @@ export default function CartPage() {
       isDefault: !!selAddr.isDefault,
     };
 
+    // Tạo payload
     const payload = {
       items,
       shippingAddress,
-      payment: { method: payMethod },
+      payment: { method: payMethod }, // cod | bank | momo
       couponCode: couponResult.valid ? couponResult.code : undefined,
     };
 
     try {
       setLoading(true);
+      
+      // 1. TẠO ĐƠN HÀNG TRƯỚC (Dù thanh toán kiểu gì cũng phải tạo đơn)
       const order = await createOrder(payload);
 
-      // Dọn giỏ: chỉ giữ lại món chưa mua
+      // Xử lý dọn giỏ hàng ngay sau khi tạo đơn thành công
       const bought = new Set(items.map((i) => String(i.bookId)));
       const remain = cart.items.filter((i) => !bought.has(String(idOf(i))));
       cart.clear();
       for (const i of remain) cart.add(i, Number(i.quantity || 1));
       setSelected(new Set());
       setBuyOnly(false);
-
-      // Reset coupon
       setCouponResult({ valid: false, discount: 0, code: '', message: '', loading: false });
       setCouponInput('');
 
+      // 2. ĐIỀU HƯỚNG THEO PHƯƠNG THỨC THANH TOÁN
+      
+      // --- TRƯỜNG HỢP MOMO ---
+      if (payMethod === 'momo') {
+          try {
+              // Gọi API backend để lấy link thanh toán
+              // Lưu ý: Đảm bảo bạn đã tạo route /api/payments/momo/create ở backend như hướng dẫn trước
+              const res = await api.post('/api/payments/momo/create', { orderId: order._id || order.id });
+              
+              if (res.payUrl) {
+                  showToast?.({ type: 'info', title: 'Đang chuyển hướng...', message: 'Vui lòng thanh toán trên cổng Momo.', duration: 3000 });
+                  // Chuyển hướng người dùng sang Momo
+                  window.location.href = res.payUrl; 
+                  return; // Dừng hàm tại đây
+              } else {
+                  throw new Error('Không nhận được link thanh toán từ Momo');
+              }
+          } catch (momoErr) {
+              console.error(momoErr);
+              // Nếu lỗi Momo, vẫn giữ đơn hàng nhưng chuyển về trang quản lý đơn để khách thanh toán lại sau
+              alert("Lỗi kết nối Momo. Đơn hàng đã được lưu, bạn có thể thử thanh toán lại trong 'Đơn hàng của tôi'.");
+              nav('/account/orders');
+              return;
+          }
+      }
+
+      // --- TRƯỜNG HỢP COD / BANK ---
       showToast?.({
         type: 'success',
         title: 'Đặt hàng thành công 🎉',
         message: payMethod === 'cod'
-          ? 'Đơn hàng đã được tạo. Vui lòng theo dõi trạng thái trong mục Đơn hàng của tôi.'
+          ? 'Đơn hàng đã được tạo. Vui lòng theo dõi trạng thái.'
           : 'Đơn hàng đã được tạo. Đang mở trang chuyển khoản…',
         duration: 2400,
       });
 
       await handlePostCreateRedirect(order, payMethod);
+
     } catch (e) {
       if (String(e?.message || '').toLowerCase().includes('unauthorized')) return nav('/login?next=/cart');
-      if (e?.response?.data?.message?.toLowerCase?.().includes('coupon')) {
-        setCouponResult(prev => ({ ...prev, valid: false, message: e.response.data.message }));
-      }
-      
-      // Kiểm tra lỗi hết hàng từ backend (dự phòng)
       const errorMsg = parseErrorMessage(e);
       setErrMsg(errorMsg);
     } finally { 
@@ -783,16 +800,42 @@ export default function CartPage() {
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-2">Thanh toán</label>
-              <select
-                className="input w-full"
-                value={payMethod}
-                onChange={(e) => setPayMethod(e.target.value)}
-              >
-                <option value="cod">Thanh toán khi nhận hàng (COD)</option>
-                <option value="bank">Chuyển khoản ngân hàng</option>
-              </select>
+            <div className="space-y-3">
+              <label className="block text-sm font-medium mb-1">Phương thức thanh toán</label>
+              
+              {/* 1. COD */}
+              <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${payMethod==='cod' ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600' : 'border-gray-200 hover:border-blue-300'}`}>
+                  <input type="radio" name="pay" value="cod" checked={payMethod==='cod'} onChange={()=>setPayMethod('cod')} className="accent-blue-600 w-4 h-4"/>
+                  <div className="flex-1">
+                      <div className="font-bold text-sm text-gray-900 flex items-center gap-2">
+                          <Wallet size={18} className="text-gray-500"/> Thanh toán khi nhận hàng (COD)
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">Bạn chỉ phải trả tiền khi shipper giao hàng đến.</div>
+                  </div>
+              </label>
+
+              {/* 2. BANK TRANSFER */}
+              <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${payMethod==='bank' ? 'border-blue-600 bg-blue-50 ring-1 ring-blue-600' : 'border-gray-200 hover:border-blue-300'}`}>
+                  <input type="radio" name="pay" value="bank" checked={payMethod==='bank'} onChange={()=>setPayMethod('bank')} className="accent-blue-600 w-4 h-4"/>
+                  <div className="flex-1">
+                      <div className="font-bold text-sm text-gray-900 flex items-center gap-2">
+                          <CreditCard size={18} className="text-gray-500"/> Chuyển khoản ngân hàng (VietQR)
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">Quét mã QR qua App ngân hàng, xác nhận tự động.</div>
+                  </div>
+              </label>
+
+              {/* 3. MOMO */}
+              <label className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${payMethod==='momo' ? 'border-pink-600 bg-pink-50 ring-1 ring-pink-600' : 'border-gray-200 hover:border-pink-300'}`}>
+                  <input type="radio" name="pay" value="momo" checked={payMethod==='momo'} onChange={()=>setPayMethod('momo')} className="accent-pink-600 w-4 h-4"/>
+                  <div className="flex-1">
+                      <div className="font-bold text-sm text-gray-900 flex items-center gap-2">
+                          <img src="https://upload.wikimedia.org/wikipedia/vi/f/fe/MoMo_Logo.png" alt="Momo" className="w-5 h-5 object-contain rounded-[4px]"/> 
+                          Ví điện tử Momo
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">Thanh toán siêu tốc qua ứng dụng Momo.</div>
+                  </div>
+              </label>
             </div>
 
             {/* Tính tiền */}

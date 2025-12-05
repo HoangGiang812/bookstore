@@ -35,6 +35,7 @@ import AccountComments from './pages/AccountComments'; //
 import OrderSuccess from './pages/OrderSuccess';
 import PaymentFailed from './pages/PaymentFailed';
 import PaymentBank from './pages/PaymentBank';
+import PaymentResult from './pages/PaymentResult';
 import CollectionDetail from './pages/CollectionDetail';
 import CollectionsPage from './pages/CollectionsPage';
 // Admin
@@ -71,6 +72,7 @@ export default function App() {
           <Route path="/order-success" element={<OrderSuccess />} />
           <Route path="/payment-failed" element={<PaymentFailed />} />
           <Route path="/payment-bank" element={<PaymentBank />} />
+          <Route path="/payment-result" element={<PaymentResult />} />
           <Route path="/collections" element={<CollectionsPage />} />
           <Route path="/collections/:slug" element={<CollectionDetail />} />
 

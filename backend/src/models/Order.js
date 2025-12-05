@@ -105,7 +105,11 @@ const OrderSchema = new Schema({
 
   // Thanh toán
   payment: {
-    method:     { type: String, default: 'cod' },      // cod|vnpay|momo|bank
+    method: { 
+      type: String, 
+      enum: ['cod', 'bank', 'momo'],
+      default: 'cod' 
+    },
     status:     { type: String, default: 'unpaid' },   // unpaid|paid|refunded
     provider:   { type: String },                      // vnpay|momo|bank
     intentId:   { type: String },                      // TxnRef/orderId của cổng
