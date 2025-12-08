@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import api, { getImageUrl } from '@/services/api'
 import { 
   DollarSign, ShoppingBag, Users, Box, Download, TrendingUp, 
-  Calendar, AlertTriangle, ArrowUpRight, Package, Clock, ChevronRight, Wallet, CheckCircle
+  Calendar, AlertTriangle, ArrowUpRight, Package, Clock, ChevronRight, Wallet, CheckCircle, ChevronDown
 } from 'lucide-react';
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
@@ -66,31 +66,56 @@ export default function Overview({ setActiveTab }) {
       saveAs(new Blob([buffer], {type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}), `Report_${Date.now()}.xlsx`);
   };
 
-  const COLORS = [
-    '#3b82f6', // Blue (Chờ duyệt)
-    '#8b5cf6', // Purple (Đang giao)
-    '#10b981', // Green (Thành công)
-    '#f59e0b', // Yellow (Đang đóng gói)
-    '#ef4444', // Red (Đã hủy - QUAN TRỌNG)
-    '#f97316', // Orange (Hoàn trả)
-    '#6b7280', // Gray (Khác)
-  ];
+    const STATUS_COLOR_MAP = {
+    // Nhóm Chờ/Xử lý (Vàng/Cam/Lam)
+    'Chờ duyệt': '#eab308',       // Yellow-500
+    'Đã xác nhận': '#f59e0b',     // Amber-500
+    'Đang đóng gói': '#3b82f6',   // Blue-500
+    'Chờ lấy hàng': '#6366f1',    // Indigo-500
+    'Đã gán Shipper': '#8b5cf6',  // Violet-500 (Thêm trạng thái mới)
+
+    // Nhóm Vận chuyển (Tím/Xanh dương đậm)
+    'Đang giao': '#a855f7',       // Purple-500
+    'Shipper đang lấy hoàn': '#d946ef', // Fuchsia-500
+    
+    // Nhóm Thành công (Xanh lá)
+    'Giao thành công': '#10b981', // Emerald-500
+    'Hoàn tất': '#059669',        // Emerald-600
+    
+    // Nhóm Thất bại/Hủy (Đỏ/Hồng)
+    'Đã hủy': '#ef4444',          // Red-500
+    'Yêu cầu hủy': '#f43f5e',     // Rose-500
+    'Giao thất bại': '#be123c',   // Rose-700
+    
+    // Nhóm Hoàn trả/Tiền (Cam đậm)
+    'Hoàn về kho': '#f97316',     // Orange-500
+    'Đã hoàn tiền': '#0ea5e9',    // Sky-500
+    'Khác': '#9ca3af'             // Gray-400
+    };
   const pieData = React.useMemo(() => {
       const raw = data?.pie || [];
       const group = {};
       
       raw.forEach(item => {
-          // Chuẩn hóa tên (gộp cancelled/canceled)
           let name = item.name;
-          if (name === 'canceled') name = 'cancelled'; // Gộp về 1 key chuẩn
-          
+          if (name === 'canceled') name = 'cancelled';
+          // Map từ key tiếng Anh sang tiếng Việt
           const label = STATUS_MAP[name] || name;
           
           if (!group[label]) group[label] = 0;
           group[label] += item.value;
       });
 
-      return Object.keys(group).map(key => ({ name: key, value: group[key] }));
+      // Chuyển sang mảng và gán màu cố định
+      return Object.keys(group)
+        .map(key => ({ 
+            name: key, 
+            value: group[key],
+            // Lấy màu từ map, nếu không có thì dùng màu xám
+            color: STATUS_COLOR_MAP[key] || '#9ca3af' 
+        }))
+        // Sắp xếp: Giá trị lớn lên đầu để biểu đồ đẹp hơn
+        .sort((a, b) => b.value - a.value);
   }, [data]);
 
   if (loading) return (
@@ -124,15 +149,22 @@ export default function Overview({ setActiveTab }) {
         </div>
         
         <div className="flex items-center gap-3 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-200/60">
-            <select 
-                className="bg-transparent font-bold text-sm py-2 pl-3 pr-8 rounded-xl text-gray-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer hover:bg-gray-50 transition"
-                value={range} onChange={e => setRange(e.target.value)}
-            >
-                <option value="today">Hôm nay</option>
-                <option value="7d">7 ngày qua</option>
-                <option value="30d">30 ngày qua</option>
-                <option value="year">Năm nay</option>
-            </select>
+            <div className="relative">
+                <select 
+                    className="bg-transparent font-bold text-sm py-2 pl-3 pr-10 rounded-xl text-gray-700 outline-none cursor-pointer hover:bg-gray-50 transition appearance-none z-10 relative"
+                    value={range} 
+                    onChange={e => setRange(e.target.value)}
+                >
+                    <option value="today">Hôm nay</option>
+                    <option value="7d">7 ngày qua</option>
+                    <option value="30d">30 ngày qua</option>
+                    <option value="year">Năm nay</option>
+                </select>
+                {/* Icon mũi tên tự chế - Căn chỉnh chuẩn */}
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 z-0 text-gray-500 pointer-events-none">
+                    <ChevronDown size={16} />
+                </div>
+            </div>
             <div className="w-px h-6 bg-gray-200"></div>
             <button onClick={handleExport} className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-bold hover:bg-black transition shadow-md active:scale-95">
                 <Download size={16}/> Xuất báo cáo
@@ -179,9 +211,9 @@ export default function Overview({ setActiveTab }) {
       {/* --- MAIN CHARTS ROW --- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
-          {/* Doanh thu (Area Chart) - Chiếm 2/3 */}
-          <div className="lg:col-span-2 bg-white p-8 rounded-[32px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col h-[420px]">
-              <div className="flex justify-between items-center mb-8">
+          {/* 1. DOANH THU (AREA CHART) - TĂNG CHIỀU CAO */}
+          <div className="lg:col-span-2 bg-white p-8 rounded-[32px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col h-[560px]">
+              <div className="flex justify-between items-center mb-8 shrink-0">
                   <div>
                     <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
                       <TrendingUp className="text-indigo-600" size={20}/> Xu hướng Doanh thu
@@ -193,8 +225,8 @@ export default function Overview({ setActiveTab }) {
                   </div>
               </div>
               
-              <div className="flex-1 w-full -ml-2">
-                  <ResponsiveContainer>
+              <div className="flex-1 w-full -ml-2 min-h-0">
+                  <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={data.chart}>
                         <defs>
                             <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
@@ -207,9 +239,8 @@ export default function Overview({ setActiveTab }) {
                         <YAxis axisLine={false} tickLine={false} tick={{fontSize: 11, fill: '#9ca3af'}} tickFormatter={val=>val>=1000000?`${val/1000000}M`:`${val/1000}k`}/>
                         <Tooltip 
                             contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 20px -5px rgba(0,0,0,0.1)'}} 
-                            formatter={(v)=>[fmt(v), 'Lợi nhuận thực']} // Đổi label cho đúng nghĩa
+                            formatter={(v)=>[fmt(v), 'Doanh số (GMV)']}
                         />
-                        {/* Thêm reference line số 0 để thấy rõ lỗ lãi */}
                         <ReferenceLine y={0} stroke="#000" /> 
                         <Area 
                             type="monotone" 
@@ -223,94 +254,85 @@ export default function Overview({ setActiveTab }) {
               </div>
           </div>
 
-          {/* Trạng thái đơn (Pie Chart) - Chiếm 1/3 */}
-          <div className="bg-white p-8 rounded-[32px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-[420px] flex flex-col relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-6 opacity-[0.03]"><Package size={180} className="rotate-12"/></div>
-              
-              <div className="mb-4 relative z-10">
-                  <h3 className="font-bold text-gray-900 text-lg">Phân bổ Đơn hàng</h3>
-                  <p className="text-xs text-gray-400 font-medium mt-1 uppercase tracking-wide">Tỷ lệ trạng thái xử lý</p>
-              </div>
+          {/* 2. TRẠNG THÁI ĐƠN (PIE CHART) - TỐI ƯU KHÔNG GIAN */}
+          <div className="bg-white p-6 rounded-[32px] border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] h-[560px] flex flex-col relative overflow-hidden">
+            {/* Decor nền */}
+            <div className="absolute top-0 right-0 p-6 opacity-[0.03] pointer-events-none">
+                <Package size={180} className="rotate-12"/>
+            </div>
+            
+            <div className="mb-4 relative z-10 shrink-0">
+                <h3 className="font-bold text-gray-900 text-lg">Phân bổ Đơn hàng</h3>
+                <p className="text-xs text-gray-400 font-medium mt-1 uppercase tracking-wide">Theo trạng thái xử lý</p>
+            </div>
 
-              <div className="flex-1 relative z-10">
-                  <ResponsiveContainer>
-                      <PieChart>
-                          <Pie 
+            {/* Container chính */}
+            <div className="flex-1 relative z-10 w-full flex flex-col min-h-0">
+                
+                {/* VÙNG BIỂU ĐỒ TRÒN */}
+                <div className="h-[260px] w-full shrink-0 relative">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie 
                             data={pieData} 
-                            innerRadius={70} 
-                            outerRadius={90} 
+                            cx="50%" 
+                            cy="50%" 
+                            innerRadius={75} 
+                            outerRadius={95} 
                             paddingAngle={4} 
                             dataKey="value"
                             cornerRadius={6}
-                            
-                            // ✅ TẮT HOÀN TOÀN TƯƠNG TÁC CLICK GÂY RA HÌNH VUÔNG
-                            isAnimationActive={true} 
-                            activeShape={null}       // Không vẽ shape active
-                            activeIndex={-1}         // Không có index nào active
-                            onMouseEnter={null}      // Tắt sự kiện chuột mặc định nếu cần
-                          >
-                              {pieData.map((entry, index) => (
-                                  <Cell 
+                            isAnimationActive={true}
+                            >
+                            {pieData.map((entry, index) => (
+                                <Cell 
                                     key={`cell-${index}`} 
-                                    fill={COLORS[index % COLORS.length]} 
-                                    strokeWidth={0} // Không viền
-                                    
-                                    // ✅ CỰC KỲ QUAN TRỌNG: CSS outline: none
-                                    style={{ 
-                                      outline: 'none', 
-                                      filter: 'drop-shadow(0px 2px 4px rgba(0,0,0,0.1))', // Đổ bóng nhẹ cho từng miếng cho đẹp
-                                      cursor: 'pointer'
-                                    }} 
-                                    // Hack nhỏ để xóa outline focus của trình duyệt
-                                    tabIndex={-1}
-                                  />
-                              ))}
-                          </Pie>
-                          
-                          {/* ✅ TOOLTIP NÂNG CẤP: Hiện cả Số lượng và Phần trăm */}
-                          <Tooltip 
-                            // Cho phép Tooltip hiển thị tràn ra ngoài khung chứa nếu cần
-                            allowEscapeViewBox={{ x: true, y: true }} 
-                            contentStyle={{
-                                zIndex: 9999, // ✅ Lớp cao nhất để không bị đè
-                                borderRadius: '12px', 
-                                border: '1px solid #e5e7eb', 
-                                backgroundColor: 'rgba(255, 255, 255, 0.98)', // Trắng đục
-                                boxShadow: '0 4px 20px -2px rgba(0,0,0,0.15)', // Bóng đổ đậm hơn
-                                padding: '10px 16px'
-                            }}
-                            itemStyle={{ 
-                                color: '#1f2937', // Chữ màu đen xám đậm
-                                fontWeight: '700', // Chữ đậm
-                                fontSize: '14px'
-                            }}
-                            formatter={(val, name) => {
-                                const total = data.stats.totalOrders || 1;
-                                const percent = ((val / total) * 100).toFixed(1);
-                                return [
-                                  <span key="val" className="text-gray-700">
-                                      {val} đơn <span className="text-indigo-600 font-extrabold ml-1">({percent}%)</span>
-                                  </span>, 
-                                  <span key="name" className="text-gray-500 font-medium mb-1 block border-b pb-1">{name}</span>
-                                ];
-                            }}
-                          />
-                          
-                          <Legend 
-                            verticalAlign="bottom" 
-                            height={36} 
-                            iconType="circle" 
-                            formatter={(val) => <span className="text-xs font-bold text-gray-600 ml-1">{val}</span>}
-                          />
-                      </PieChart>
-                  </ResponsiveContainer>
-                  {/* Center Label */}
-                  <div className="absolute top-[45%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
-                      <p className="text-4xl font-black text-gray-900">{data.stats.totalOrders}</p>
-                      <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">Tổng Đơn</p>
-                  </div>
-              </div>
-          </div>
+                                    fill={entry.color} 
+                                    strokeWidth={0}
+                                    className="hover:opacity-80 cursor-pointer transition-all duration-300 hover:scale-105 origin-center focus:outline-none"
+                                    style={{ outline: 'none' }}
+                                />
+                            ))}
+                            </Pie>
+                            <Tooltip 
+                            contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 30px -5px rgba(0,0,0,0.2)'}}
+                            formatter={(val, name) => [`${val} đơn`, name]}
+                            />
+                        </PieChart>
+                    </ResponsiveContainer>
+
+                    {/* Label trung tâm */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-1">
+                        <p className="text-4xl font-black text-gray-900 leading-none">
+                            {data.stats.totalOrders}
+                        </p>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
+                            Tổng đơn
+                        </p>
+                    </div>
+                </div>
+
+                {/* ✅ VÙNG CHÚ THÍCH (LEGEND) - KHÔNG THANH CUỘN */}
+                {/* Tôi dùng h-full và justify-center để căn giữa danh sách nếu ít, hoặc dàn đều nếu nhiều */}
+                <div className="mt-4 flex-1 flex flex-col justify-center px-1">
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                        {pieData.map((entry, index) => (
+                            <div key={index} className="flex items-center justify-between text-xs border-b border-gray-50 pb-1 last:border-0 group">
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                    <div className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm" style={{ backgroundColor: entry.color }}></div>
+                                    <span className="text-gray-600 truncate font-medium group-hover:text-gray-900 transition" title={entry.name}>
+                                        {entry.name}
+                                    </span>
+                                </div>
+                                <span className="font-bold text-gray-900 bg-gray-100 px-2 py-0.5 rounded ml-2 shadow-sm">
+                                    {entry.value}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        </div>
       </div>
 
       {/* --- BOTTOM SECTION --- */}

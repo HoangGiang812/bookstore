@@ -132,11 +132,24 @@ export async function createOrder(req, res) {
 
     const executeOrderCreation = async (opts = {}) => {
         for (const it of norm) {
-            await Book.updateOne(
-                { _id: it.bookId },
-                { $inc: { stock: -it.qty, soldCount: it.qty } },
+            // Dùng Atomic Update: Tìm sách có ID đó VÀ stock >= số lượng mua
+            const result = await Book.updateOne(
+                { 
+                    _id: it.bookId, 
+                    stock: { $gte: it.qty } // Điều kiện: Phải đủ hàng mới được trừ
+                },
+                { 
+                    $inc: { stock: -it.qty, soldCount: it.qty } 
+                },
                 opts
             );
+
+            // Nếu modifiedCount === 0 nghĩa là không tìm thấy sách đủ điều kiện (đã hết hàng trong tích tắc trước đó)
+            if (result.modifiedCount === 0) {
+                // Lấy tên sách để báo lỗi cho rõ
+                const bookName = it.title || 'Sản phẩm';
+                throw new Error(`Rất tiếc, sản phẩm "${bookName}" vừa hết hàng hoặc không đủ số lượng.`);
+            }
         }
 
         const [newOrder] = await Order.create([{

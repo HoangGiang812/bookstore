@@ -242,15 +242,18 @@ export default function PaymentsTab() {
               </div>
 
               <div className="space-y-6 relative z-10">
-                  <div className="bg-white/10 p-4 rounded-2xl backdrop-blur-sm border border-white/10">
-                      <div className="flex justify-between text-sm mb-2 font-medium">
-                          <span className="text-indigo-200">Tỷ lệ thu hồi</span>
-                          <span>{stats.revenue > 0 ? Math.round(((stats.revenue - stats.refund) / stats.revenue) * 100) : 0}%</span>
-                      </div>
-                      <div className="w-full bg-indigo-950 h-2 rounded-full overflow-hidden">
-                          <div className="bg-emerald-400 h-full transition-all duration-1000" style={{width: `${stats.revenue > 0 ? ((stats.revenue - stats.refund) / stats.revenue) * 100 : 0}%`}}></div>
-                      </div>
-                  </div>
+                <div className="bg-white/10 p-4 rounded-2xl backdrop-blur-sm border border-white/10">
+                    <div className="flex justify-between text-sm mb-2 font-medium">
+                        {/* SỬA TẠI ĐÂY: Đổi "Tỷ lệ thu hồi" thành tên hợp lý hơn */}
+                        <span className="text-indigo-200">Hiệu suất dòng tiền</span> 
+                        
+                        {/* Công thức giữ nguyên là đúng */}
+                        <span>{stats.revenue > 0 ? Math.round(((stats.revenue - stats.refund) / stats.revenue) * 100) : 0}%</span>
+                    </div>
+                    <div className="w-full bg-indigo-950 h-2 rounded-full overflow-hidden">
+                        <div className="bg-emerald-400 h-full transition-all duration-1000" style={{width: `${stats.revenue > 0 ? ((stats.revenue - stats.refund) / stats.revenue) * 100 : 0}%`}}></div>
+                    </div>
+                </div>
                   
                   <button onClick={handleExport} className="w-full py-3.5 bg-white text-indigo-900 rounded-xl font-bold text-sm hover:bg-indigo-50 transition shadow-lg flex items-center justify-center gap-2 active:scale-95">
                       <FileSpreadsheet size={18}/> Xuất Báo Cáo Excel
