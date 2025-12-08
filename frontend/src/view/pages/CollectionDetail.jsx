@@ -5,21 +5,30 @@ import api, { getImageUrl } from '../../services/api';
 import DealCard from '../components/DealCard';
 import { useCart } from '../../store/useCart';
 import { useAuth } from '../../store/useAuth';
+import { useUI } from '../../store/useUI';
 
 export default function CollectionDetail() {
   const { slug } = useParams();
   const [collection, setCollection] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState('default'); 
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
-  const [keyword, setKeyword] = useState(''); // Tìm kiếm trong collection
+  const [viewMode, setViewMode] = useState('grid');
+  const [keyword, setKeyword] = useState('');
 
   const cart = useCart();
   const { user } = useAuth();
   const nav = useNavigate();
+  const { showToast } = useUI();
   
-  const handleAdd = (bk) => cart.add(bk, 1);
-  const handleBuy = (bk) => { cart.add(bk, 1); user ? nav("/cart") : nav("/login?next=/cart"); };
+ const handleAdd = (bk) => {
+      if (bk.stock <= 0) return showToast({ type: 'error', title: 'Hết hàng', msg: 'Sản phẩm tạm hết hàng.' });
+      cart.add(bk, 1);
+  };
+  const handleBuy = (bk) => { 
+      if (bk.stock <= 0) return showToast({ type: 'error', title: 'Hết hàng', msg: 'Sản phẩm tạm hết hàng.' });
+      cart.add(bk, 1); 
+      user ? nav("/cart") : nav("/login?next=/cart"); 
+  };
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -61,7 +70,8 @@ export default function CollectionDetail() {
     price: b.price,
     originalPrice: b.price / (1 - (b.discountPercent||0)/100),
     discountPercent: b.discountPercent,
-    author: b.author
+    author: b.author,
+    stock: Number(b.stock || 0)
   });
 
   if (loading) return (

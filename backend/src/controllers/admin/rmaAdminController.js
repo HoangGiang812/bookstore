@@ -44,9 +44,9 @@ export const updateRMAStatus = async (req, res) => {
     if (status === 'approved') {
         if (shipperId) {
             rma.returnShipperId = shipperId;
-            rma.status = 'picking'; // Chuyển sang trạng thái chờ Shipper đi lấy
+            rma.status = 'assigned';
         } else {
-            rma.status = 'approved'; // Nếu chưa gán shipper ngay thì để approved
+            rma.status = 'approved'; 
         }
     }
     

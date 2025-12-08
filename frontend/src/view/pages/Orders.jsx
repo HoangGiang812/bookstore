@@ -396,35 +396,7 @@ export default function Orders() {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen">
-      <div className="container px-4 py-6 grid lg:grid-cols-[280px,1fr] gap-6">
-        
-        {/* Sidebar */}
-        <aside className="bg-white rounded-xl border shadow-sm h-fit hidden lg:block">
-          <div className="flex items-center gap-3 px-4 py-4 border-b">
-            <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
-              <span className="text-xl">👤</span>
-            </div>
-            <div>
-              <div className="text-xs text-gray-500">Tài khoản của</div>
-              <div className="font-semibold text-gray-900">
-                {user?.name || user?.email || 'Bạn'}
-              </div>
-            </div>
-          </div>
-          <nav className="p-2 text-[15px]">
-            <Link to="/account/info" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
-              <span className="w-6 text-center">👤</span> Thông tin tài khoản
-            </Link>
-            <Link to="/account/addresses" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700">
-              <span className="w-6 text-center">📍</span> Sổ địa chỉ
-            </Link>
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-100 text-gray-900 font-medium">
-              <span className="w-6 text-center">🧾</span> Quản lý đơn hàng
-            </div>
-          </nav>
-        </aside>
-
+    <>
         {/* Content */}
         <section className="bg-white rounded-xl border shadow-sm min-h-[500px]">
           <div className="px-5 pt-5 border-b pb-0">
@@ -690,7 +662,6 @@ export default function Orders() {
             })}
           </div>
         </section>
-      </div>
 
       {/* --- MODALS SECTION --- */}
 
@@ -970,7 +941,7 @@ export default function Orders() {
         .compact-uploader label p { font-size: 12px !important; color: #6b7280; }
         .compact-uploader label p.text-xs { display: none !important; }
       `}</style>
-    </div>
+            </>
   );
 }
 // Component nút liên hệ nhỏ

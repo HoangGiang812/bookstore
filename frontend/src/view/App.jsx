@@ -79,12 +79,17 @@ export default function App() {
 
           {/* Các route CẦN ĐĂNG NHẬP */}
           <Route element={<ProtectedRoute />}>
-            <Route path="/orders" element={<Orders />} />
-            <Route path="/account" element={<Account />} />
-            <Route path="/account/info" element={<AccountInfo />} />
-            <Route path="/account/addresses" element={<AddressBook />} />
-            <Route path="/account/reviews" element={<AccountReviews />} />
-            <Route path="/account/comments" element={<AccountComments />} />
+  
+            <Route path="/account" element={<Account />}>
+              <Route index element={<Navigate to="info" replace />} />
+              <Route path="info" element={<AccountInfo />} />
+              <Route path="orders" element={<Orders />} />
+              <Route path="addresses" element={<AddressBook />} />
+              <Route path="reviews" element={<AccountReviews />} />
+              <Route path="comments" element={<AccountComments />} />
+              
+            </Route>
+
           </Route>
         </Route>
 

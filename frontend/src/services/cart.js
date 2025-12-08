@@ -1,6 +1,8 @@
 // src/services/cart.js
 import { load, save } from '../view/services/storage';
 import api from '../services/api';
+// Import store để dùng Toast trong file JS thường
+import { useUI } from '../store/useUI'; 
 
 const keyFor = (uid) => (uid ? `cart_${uid}` : 'cart_guest');
 
@@ -17,34 +19,90 @@ export const addToCart = (uid, book, qty = 1) => {
   const id = book._id || book.id;
   if (!id) throw new Error('Thiếu book id');
 
+  // --- 1. TÍNH GIÁ ---
+  const originalPrice = Number(book.price || 0);
+  const discount = Number(book.discountPercent || 0);
+  const finalPrice = discount > 0 
+    ? Math.round(originalPrice * (1 - discount / 100)) 
+    : originalPrice;
+
+  // --- 2. LẤY TỒN KHO (SỬA LỖI QUAN TRỌNG) ---
+  // Nếu dữ liệu book không có trường stock (undefined), ta cho phép mua (Infinity) 
+  // để tránh lỗi chặn nhầm. Chỉ chặn khi stock thực sự = 0 hoặc số cụ thể.
+  const stock = (book.stock !== undefined && book.stock !== null) 
+    ? Number(book.stock) 
+    : Infinity; 
+
+  // --- 3. KIỂM TRA TRONG GIỎ HÀNG HIỆN TẠI ---
+  const list = getCart(uid);
+  const idx = list.findIndex((i) => (i.id || i.bookId) === id);
+  const currentQtyInCart = idx >= 0 ? Number(list[idx].quantity || 0) : 0;
+  const quantityToAdd = Math.max(1, Number(qty || 1));
+
+  // 🔥 CHECK TỒN KHO & DÙNG TOAST 🔥
+  if (currentQtyInCart + quantityToAdd > stock) {
+      const msg = stock === 0 
+        ? `Sản phẩm "${book.title}" hiện đã hết hàng!` 
+        : `Kho chỉ còn ${stock} sản phẩm. Bạn đã có ${currentQtyInCart} trong giỏ.`;
+      
+      // Gọi Toast thay vì Alert
+      useUI.getState().showToast({ type: 'error', title: 'Không thể thêm', msg: msg });
+      
+      return list; // 🛑 CHẶN ĐỨNG
+  }
+
+  // --- 4. TẠO ITEM MỚI ---
   const item = {
     id,
     bookId: id,
     title: book.title,
-    price: Number(book.salePrice ?? book.price ?? 0),
+    price: finalPrice,
+    originalPrice: originalPrice,
+    discountPercent: discount,
+    stock: stock, // Lưu lại stock để dùng cho hàm updateCart
     image: book.image || book.coverUrl || '/placeholder.png',
     categoryId: book.categoryId || (Array.isArray(book.categoryIds) ? book.categoryIds[0] : null),
-    quantity: Math.max(1, Number(qty || 1)),
+    quantity: quantityToAdd,
   };
 
-  const list = getCart(uid);
-  const idx = list.findIndex((i) => (i.id || i.bookId) === id);
   const next =
     idx >= 0
-      ? list.map((i) => ( (i.id || i.bookId) === id ? { ...i, quantity: Math.min(999, Number(i.quantity || 0) + item.quantity) } : i ))
+      ? list.map((i) => ( (i.id || i.bookId) === id ? { ...i, quantity: i.quantity + item.quantity } : i ))
       : [item, ...list];
 
   save(keyFor(uid), next);
   emit('cart:itemAdded', { id, qty: item.quantity });
+  
+  // Hiện Toast thông báo thêm thành công
+  useUI.getState().showToast({ type: 'success', title: 'Đã thêm vào giỏ', msg: `Đã thêm "${book.title}"` });
+  
   return next;
 };
 
 export const updateCart = (uid, id, qty) => {
-  const n = Math.max(0, Number(qty || 0));
+  let n = Math.max(0, Number(qty || 0));
   const list = getCart(uid);
+  const item = list.find(i => (i.id || i.bookId) === id);
+  
+  if (item && item.stock !== undefined && item.stock !== null && item.stock !== Infinity) {
+      const currentQty = Number(item.quantity || 0);
+      const stock = Number(item.stock);
+
+      // Nếu đang tăng số lượng và vượt quá tồn kho
+      if (n > currentQty && n > stock) {
+          useUI.getState().showToast({ 
+            type: 'warning', 
+            title: 'Hết hàng', 
+            msg: `Kho chỉ còn tối đa ${stock} sản phẩm!` 
+          });
+          n = stock; // Ép về số lượng tối đa
+      }
+  }
+
   const next = n <= 0
     ? list.filter((i) => (i.id || i.bookId) !== id)
-    : list.map((i) => ((i.id || i.bookId) === id ? { ...i, quantity: Math.max(1, n) } : i));
+    : list.map((i) => ((i.id || i.bookId) === id ? { ...i, quantity: n } : i));
+    
   save(keyFor(uid), next);
   emit('cart:itemUpdated', { id, qty: n });
   return next;
@@ -69,23 +127,15 @@ export const calcSubtotal = (items) =>
 
 // ========== SHIPPING RULES (FE) ==========
 const FREE_SHIP_THRESHOLD = 500_000;
-
-// tỉnh đặt shop
 const SHOP_PROVINCE = 'Hồ Chí Minh';
-
-// các tỉnh giáp ranh (tự chỉnh nếu muốn)
 const NEAR_PROVINCES = ['Bình Dương', 'Đồng Nai', 'Long An'];
-
-// mức phí theo vùng (tự chỉnh nếu muốn)
 const FEE_SAME_CITY = 20_000;
 const FEE_NEAR = 25_000;
 const FEE_FAR = 30_000;
 
-// fallback cũ (giữ để không phá chỗ khác đang import)
 export const shippingFee = (subtotal) =>
   Number(subtotal) >= FREE_SHIP_THRESHOLD ? 0 : FEE_FAR;
 
-// TÍNH PHÍ SHIP LOCAL THEO TỈNH
 function shippingFeeLocal(province, subtotal) {
   const sub = Number(subtotal || 0);
   if (sub >= FREE_SHIP_THRESHOLD) return 0;
@@ -109,13 +159,11 @@ function normalizeName(s) {
 function equalsProvince(a, b) {
   const na = normalizeName(a);
   const nb = normalizeName(b);
-  // chấp nhận một vài biến thể tên HCM
   const isHCM = (x) => /(hồ chí minh|ho chi minh|tp\.?\s*hcm|tphcm)/i.test(x);
   if (isHCM(a) && isHCM(b)) return true;
   return na === nb;
 }
 
-// Ưu tiên BE, BE không hợp lệ thì dùng local
 export async function shippingFeeFor(province, subtotal) {
   try {
     const q = new URLSearchParams({
@@ -126,23 +174,18 @@ export async function shippingFeeFor(province, subtotal) {
     const data = await api.get(`/api/public/shipping/estimate?${q}`);
     const fee = Number(data?.fee);
     if (Number.isFinite(fee) && fee >= 0) return fee;
-
-    // BE trả không hợp lệ -> FE tự tính
     return shippingFeeLocal(province, subtotal);
   } catch {
-    // BE lỗi -> FE tự tính
     return shippingFeeLocal(province, subtotal);
   }
 }
 
-// ---- coupon demo ----
 export const applyCoupon = (code, subtotal) => {
   const map = { GIAM10: 0.9, FREESHIP300: 1 };
   const rate = map[String(code || '').toUpperCase()] || 1;
   return { valid: rate !== 1, total: Math.round(Number(subtotal || 0) * rate) };
 };
 
-// ---- BUY NOW helpers ----
 export const setBuyNow = (data) => {
   const safe = data && data.id ? {
     id: data.id,

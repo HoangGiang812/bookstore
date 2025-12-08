@@ -3,28 +3,37 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import api from '../../services/api';
 import DealCard from './DealCard';
 import SectionHeader from './SectionHeader';
-import { useCart } from '../../store/useCart'; // Import useCart
-import { useAuth } from '../../store/useAuth'; // Import useAuth
-import { useNavigate } from 'react-router-dom'; // Import useNavigate
+import { useCart } from '../../store/useCart';
+import { useAuth } from '../../store/useAuth';
+import { useNavigate } from 'react-router-dom';
+import { useUI } from '../../store/useUI';
 
 export default function ProductRow({ title, groupType, limit = 10 }) {
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef(null);
 
-  // --- THÊM ĐOẠN HOOKS NÀY ---
   const cart = useCart();
   const { user } = useAuth();
   const nav = useNavigate();
+  const { showToast } = useUI();
 
-  const handleAdd = (bk) => cart.add(bk, 1);
+  const handleAdd = (bk) => {
+    if (bk.stock <= 0) {
+       return showToast({ type: 'error', title: 'Hết hàng', msg: 'Sản phẩm này tạm thời hết hàng.' });
+    }
+    cart.add(bk, 1);
+  };
   
   const handleBuy = (bk) => { 
+    if (bk.stock <= 0) {
+       return showToast({ type: 'error', title: 'Hết hàng', msg: 'Sản phẩm này tạm thời hết hàng.' });
+    }
     cart.add(bk, 1); 
     if (!user) nav(`/login?next=${encodeURIComponent('/cart?buy=1')}`);
     else nav("/cart?buy=1");
   };
-  // ---------------------------
+  
 
   useEffect(() => {
     const fetchData = async () => {
@@ -84,11 +93,10 @@ export default function ProductRow({ title, groupType, limit = 10 }) {
                             id: book._id,
                             image: book.coverUrl || book.image,
                             originalPrice: book.price / (1 - (book.discountPercent||0)/100),
+                            stock: Number(book.stock || 0), 
                         }} 
-                        // --- TRUYỀN HÀM VÀO DEALCARD ---
                         onAdd={handleAdd} 
                         onBuy={handleBuy} 
-                        // -------------------------------
                     />
                  </div>
                ))

@@ -481,8 +481,10 @@ export default function Header() {
                     onMouseLeave={scheduleClose}
                   >
                     <Link to="/account/info" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Thông tin tài khoản</Link>
-                    <Link to="/account/addresses" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Sổ địa chỉ</Link>
-                    <Link to="/orders" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Đơn hàng của tôi</Link>
+                    <Link to="/account/addresses" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Địa chỉ</Link>
+                    <Link to="/account/orders" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Đơn hàng của tôi</Link>
+                    <Link to="/account/reviews" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Đánh giá sản phẩm</Link>
+                    <Link to="/account/comments" className="block px-3 py-2 rounded-lg hover:bg-gray-50">Nhận xét của tôi</Link>
                     <button
                       onClick={async () => {
                         await logoutAll(); // 1. Đợi đăng xuất xong

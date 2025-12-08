@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom'; // Thêm useNavigate
+import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Layers } from 'lucide-react';
 import api, { getImageUrl } from '../../services/api';
 import DealCard from './DealCard';
-import { useCart } from '../../store/useCart'; // Import useCart
-import { useAuth } from '../../store/useAuth'; // Import useAuth
+import { useCart } from '../../store/useCart';
+import { useAuth } from '../../store/useAuth';
+import { useUI } from '../../store/useUI'
 
 export default function HomeCollection({ slug, title, subtitle }) {
   const [collection, setCollection] = useState(null);
@@ -14,12 +15,16 @@ export default function HomeCollection({ slug, title, subtitle }) {
   const cart = useCart();
   const { user } = useAuth();
   const nav = useNavigate();
+  const { showToast } = useUI();
 
-  const handleAdd = (bk) => cart.add(bk, 1);
+  const handleAdd = (bk) => {
+    if (bk.stock <= 0) return showToast({ type: 'error', title: 'Hết hàng', msg: 'Sản phẩm đã hết.' });
+    cart.add(bk, 1);
+  };
   
   const handleBuy = (bk) => { 
+    if (bk.stock <= 0) return showToast({ type: 'error', title: 'Hết hàng', msg: 'Sản phẩm đã hết.' });
     cart.add(bk, 1); 
-    // Nếu chưa đăng nhập -> Login rồi quay lại Cart
     if (!user) nav(`/login?next=${encodeURIComponent('/cart?buy=1')}`);
     else nav("/cart?buy=1");
   };
@@ -49,7 +54,8 @@ export default function HomeCollection({ slug, title, subtitle }) {
     price: b.price,
     originalPrice: b.price / (1 - (b.discountPercent||0)/100),
     discountPercent: b.discountPercent,
-    author: b.author
+    author: b.author,
+    stock: Number(b.stock || 0)
   });
 
   return (

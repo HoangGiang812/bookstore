@@ -210,7 +210,7 @@ export const getMyRMATasks = async (req, res) => {
     try {
         const rmas = await RMA.find({ 
         returnShipperId: req.user._id,
-        status: { $in: ['picking', 'picked', 'returned_to_warehouse', 'processed', 'refunded'] }
+        status: { $in: ['assigned', 'approved', 'picking', 'picked', 'returned_to_warehouse', 'processed', 'refunded'] }
     })
         .populate('userId', 'name phone addresses') // Lấy thông tin khách
         .populate({
@@ -255,5 +255,65 @@ export const dropoffRMA = async (req, res) => {
     } catch (e) { 
         console.error("Dropoff Error:", e); // Log lỗi ra console server
         res.status(500).json({ message: e.message }); 
+    }
+};
+
+export const replyAssignment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action } = req.body; // 'accept' hoặc 'reject'
+        
+        // Tìm đơn hàng đang được gán cho shipper này (status = assigned)
+        const o = await Order.findOne({ 
+            _id: id, 
+            'shipping.shipperId': req.user._id,
+            status: 'assigned' 
+        });
+
+        if (!o) return res.status(404).json({ message: 'Không tìm thấy yêu cầu gán đơn hợp lệ' });
+
+        if (action === 'accept') {
+            o.status = 'ready_to_pick'; // Chuyển sang trạng thái chờ lấy hàng
+            o.shipping.status = 'accepted';
+            pushHistory(o, 'shipper_accept', 'shipper', 'Shipper đã nhận đơn');
+        } 
+        else if (action === 'reject') {
+            o.status = 'processing'; // Trả về trạng thái cũ để Admin gán người khác
+            o.shipping.shipperId = null; // Xóa shipper hiện tại
+            o.shipping.status = 'rejected';
+            pushHistory(o, 'shipper_reject', 'shipper', 'Shipper từ chối nhận đơn');
+        }
+
+        await o.save();
+        res.json({ ok: 1, action });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+};
+
+export const replyRMAAssignment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { action } = req.body; // 'accept' | 'reject'
+
+        const rma = await RMA.findOne({ _id: id, returnShipperId: req.user._id, status: 'assigned' });
+        if (!rma) return res.status(404).json({ message: 'Không tìm thấy yêu cầu' });
+
+        if (action === 'accept') {
+            rma.status = 'picking'; // Chấp nhận -> Đi lấy hàng
+        } else if (action === 'reject') {
+            rma.status = 'requested'; // Từ chối -> Quay về trạng thái ban đầu để Admin gán người khác
+            rma.returnShipperId = null; 
+            rma.adminNote = `Shipper ${req.user.name} đã từ chối đơn.`;
+        }
+
+        await rma.save();
+        
+        // Đồng bộ trạng thái sang Order (để khách hàng thấy trên Timeline)
+        await Order.findByIdAndUpdate(rma.orderId, { rmaStatus: rma.status });
+
+        res.json({ ok: 1, action });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
     }
 };

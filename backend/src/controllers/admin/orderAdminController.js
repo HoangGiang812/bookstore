@@ -2,6 +2,7 @@ import { Order } from '../../models/Order.js';
 import { Book } from '../../models/Book.js';
 import { Transaction } from '../../models/Transaction.js';
 import { User } from '../../models/User.js';
+import { RMA } from '../../models/RMA.js';
 
 function pushHistory(o, type, by = 'admin', note = '', extra = {}) {
   o.history = Array.isArray(o.history) ? o.history : [];
@@ -358,20 +359,24 @@ export const setPaymentStatus = async (req, res) => {
 };
 
 export const assignShipper = async (req, res) => {
-  const { id } = req.params; // Order ID
-  const { shipperId } = req.body; // Shipper ID
+  const { id } = req.params;
+  const { shipperId } = req.body;
 
   try {
-    // 1. Tìm đơn hàng
     const o = await Order.findById(id);
     if (!o) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+    if (!['processing', 'ready_to_pick'].includes(o.status)) {
+        return res.status(400).json({ 
+            message: `Không thể gán Shipper vì đơn đang ở trạng thái: ${o.status}` 
+        });
+    }
 
     // 2. Tìm Shipper (Bỏ qua check role phức tạp để tránh lỗi, chỉ cần tìm thấy user là được)
     const shipper = await User.findById(shipperId);
     if (!shipper) return res.status(404).json({ message: 'Không tìm thấy nhân viên Shipper' });
 
     // 3. Cập nhật thông tin (Trực tiếp, không cần check status cũ quá gắt gao)
-    o.status = 'ready_to_pick'; // Chuyển trạng thái
+    o.status = 'assigned';
     
     // Khởi tạo object shipping nếu chưa có
     if (!o.shipping) o.shipping = {};
@@ -379,7 +384,7 @@ export const assignShipper = async (req, res) => {
     // Gán dữ liệu
     o.shipping.shipperId = shipper._id;
     o.shipping.assignedAt = new Date();
-    o.shipping.status = 'assigned';
+    o.shipping.status = 'pending_confirmation';
 
     // Thêm log vào mảng logs (nếu mảng chưa có thì tạo mới)
     const newLog = { status: 'assigned', note: `Gán cho: ${shipper.name}`, at: new Date() };
@@ -482,6 +487,43 @@ export const list = async (req, res) => {
     res.json({ items: orders, total: orders.length });
   } catch (e) {
     console.error(e);
+    res.status(500).json({ message: e.message });
+  }
+};
+
+export const getShippersWithLoad = async (req, res) => {
+  try {
+    const shippers = await User.find({ role: 'shipper', isActive: true })
+        .select('name phone avatarUrl email')
+        .lean();
+
+    // 1. Đếm đơn Giao hàng (Order)
+    const activeOrderStatuses = ['assigned', 'ready_to_pick', 'picking', 'picked', 'shipping', 'delivery_failed'];
+    const orderCounts = await Order.aggregate([
+        { $match: { status: { $in: activeOrderStatuses }, 'shipping.shipperId': { $ne: null } } },
+        { $group: { _id: '$shipping.shipperId', count: { $sum: 1 } } }
+    ]);
+
+    // 2. Đếm đơn Đổi trả (RMA) - [MỚI]
+    const activeRMAStatuses = ['assigned', 'approved', 'picking', 'picked'];
+    const rmaCounts = await RMA.aggregate([
+        { $match: { status: { $in: activeRMAStatuses }, returnShipperId: { $ne: null } } },
+        { $group: { _id: '$returnShipperId', count: { $sum: 1 } } }
+    ]);
+
+    // 3. Tổng hợp
+    const taskMap = {};
+    orderCounts.forEach(t => { taskMap[String(t._id)] = (taskMap[String(t._id)] || 0) + t.count; });
+    rmaCounts.forEach(t => { taskMap[String(t._id)] = (taskMap[String(t._id)] || 0) + t.count; });
+
+    const result = shippers.map(s => ({
+        ...s,
+        taskCount: taskMap[String(s._id)] || 0,
+        status: (taskMap[String(s._id)] || 0) > 5 ? 'busy' : 'ready'
+    })).sort((a, b) => a.taskCount - b.taskCount);
+
+    res.json(result);
+  } catch (e) {
     res.status(500).json({ message: e.message });
   }
 };

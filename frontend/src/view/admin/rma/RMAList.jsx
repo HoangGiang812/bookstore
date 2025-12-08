@@ -5,13 +5,14 @@ import {
     Search, RefreshCw, CheckCircle, XCircle, Eye, X, Package, 
     AlertTriangle, Truck, CreditCard, Filter, ChevronLeft, ChevronRight, User, Clock, ExternalLink
 } from 'lucide-react';
-import { getImageUrl } from '@/services/api';
+import { api, getImageUrl } from '@/services/api';
 import ImageUploader from '@/view/pages/admin/ImageUploader';
 
 // --- CẤU HÌNH TRẠNG THÁI ---
 const STATUS_CONFIG = {
   requested: { label: 'Mới yêu cầu', color: 'text-blue-700 bg-blue-50 border-blue-200', icon: AlertTriangle },
   approved: { label: 'Đã duyệt', color: 'text-indigo-700 bg-indigo-50 border-indigo-200', icon: CheckCircle },
+  assigned: { label: 'Chờ Shipper nhận', color: 'text-sky-700 bg-sky-50 border-sky-200', icon: User },
   picking: { label: 'Đang lấy hàng', color: 'text-orange-700 bg-orange-50 border-orange-200', icon: Truck },
   picked: { label: 'Đang giữ hàng', color: 'text-purple-700 bg-purple-50 border-purple-200', icon: Package },
   returned_to_warehouse: { label: 'Đã về kho', color: 'text-pink-700 bg-pink-50 border-pink-200', icon: RefreshCw },
@@ -43,8 +44,9 @@ const RMADetailModal = ({ rma, onClose, onUpdateStatus }) => {
   const [rejectReason, setRejectReason] = useState(''); 
 
   useEffect(() => {
-      listShippers().then(res => setShipperList(res.items || res || [])).catch(()=>{});
-  }, []);
+    // Gọi endpoint lấy shipper có load
+    api.get('/admin/shippers/load').then(res => setShipperList(res.items || res || [])).catch(()=>{});
+    }, []);
 
   if (!rma) return null;
   const orderTotal = rma.orderId?.total?.grand ?? rma.orderId?.pricing?.grandTotal ?? 0;
@@ -146,22 +148,44 @@ const RMADetailModal = ({ rma, onClose, onUpdateStatus }) => {
 
               <div className="relative z-10">
                   {rma.status === 'requested' && (
-                      <div className="space-y-4">
-                          <div>
-                              <label className="block text-xs font-bold text-indigo-800 mb-1 uppercase">Chọn Shipper đi lấy:</label>
-                              <select className="input w-full bg-white border-indigo-200" value={selectedShipper} onChange={e=>setSelectedShipper(e.target.value)}>
-                                  <option value="">-- Chọn nhân viên --</option>
-                                  {shipperList.map(s => <option key={s._id} value={s._id}>{s.name} - {s.phone}</option>)}
-                              </select>
-                          </div>
-                          <div className="flex gap-3">
-                              <button onClick={()=>handleAction('approved')} disabled={submitting} className="btn bg-indigo-600 text-white hover:bg-indigo-700 shadow-md flex-1">
-                                  {submitting ? 'Processing...' : 'Duyệt & Gán Shipper'}
-                              </button>
-                              <button onClick={()=>handleAction('rejected')} disabled={submitting} className="btn bg-white border border-red-200 text-red-600 hover:bg-red-50 flex-1">Từ chối</button>
-                          </div>
-                      </div>
-                  )}
+                    <div className="space-y-4">
+                        <label className="block text-xs font-bold text-indigo-800 mb-1 uppercase">Chọn Shipper đi lấy:</label>
+                        
+                        {/* VÙNG CHỌN SHIPPER MỚI */}
+                        <div className="max-h-[200px] overflow-y-auto border rounded-xl bg-white p-2 space-y-1 custom-scrollbar">
+                            {shipperList.map(s => (
+                                <div 
+                                    key={s._id}
+                                    onClick={() => setSelectedShipper(s._id)}
+                                    className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer border transition-all ${selectedShipper === s._id ? 'border-indigo-600 bg-indigo-50 ring-1 ring-indigo-600' : 'border-transparent hover:bg-gray-50'}`}
+                                >
+                                    <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden shrink-0">
+                                        {s.avatarUrl ? <img src={getImageUrl(s.avatarUrl)} className="w-full h-full object-cover"/> : <span className="flex items-center justify-center h-full text-xs font-bold">{s.name[0]}</span>}
+                                    </div>
+                                    <div className="flex-1">
+                                        <div className="text-sm font-bold text-gray-800">{s.name}</div>
+                                        <div className="flex gap-2 text-xs">
+                                            <span className="text-gray-500">{s.phone}</span>
+                                            {/* Badge Bận/Rảnh */}
+                                            {s.status === 'busy' 
+                                                ? <span className="text-red-600 font-bold bg-red-50 px-1.5 rounded">Bận ({s.taskCount})</span>
+                                                : <span className="text-green-600 font-bold bg-green-50 px-1.5 rounded">Rảnh ({s.taskCount})</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    {selectedShipper === s._id && <CheckCircle size={16} className="text-indigo-600"/>}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="flex gap-3 pt-2">
+                            <button onClick={()=>handleAction('approved')} disabled={submitting} className="btn bg-indigo-600 text-white hover:bg-indigo-700 shadow-md flex-1">
+                                {submitting ? 'Processing...' : 'Gán & Duyệt'}
+                            </button>
+                            <button onClick={()=>handleAction('rejected')} disabled={submitting} className="btn bg-white border border-red-200 text-red-600 hover:bg-red-50 flex-1">Từ chối</button>
+                        </div>
+                    </div>
+                    )}
                   {['approved', 'picking', 'picked'].includes(rma.status) && (
                       <div className="flex items-center gap-3 p-4 bg-white rounded-xl border border-indigo-100 shadow-sm">
                           <div className="p-3 bg-indigo-100 text-indigo-600 rounded-full"><Truck size={24}/></div>

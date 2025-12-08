@@ -7,6 +7,7 @@ import DealCard from "../components/DealCard";
 import { useCart } from "../../store/useCart";
 import { useAuth } from "../../store/useAuth";
 import * as CartSvc from "../../services/cart";
+import { useUI } from "../../store/useUI";
 
 /* ===== Helpers Utility ===== */
 // 1. Hàm đệ quy dựng cây danh mục từ danh sách phẳng
@@ -71,6 +72,7 @@ function mapBook(b) {
     reviewCount: b.reviewsCount ?? b.reviewCount ?? b.ratingCnt ?? 0,
     discount: discountPercent, 
     discountPercent: discountPercent, 
+    stock: Number(b.stock || 0),
     category: catName,
     categorySlug: categoryObj?.slug || b.categorySlug || normalize(catName),
     image:
@@ -180,6 +182,7 @@ export default function Categories() {
   const { user } = useAuth();
   const nav = useNavigate();
   const params = useParams();
+  const { showToast } = useUI();
 
   // 1. Khởi tạo params từ URL
   useEffect(() => {
@@ -271,6 +274,11 @@ export default function Categories() {
 
   // Actions
   const handleAdd = (bk) => {
+    // 🔥 CHECK TỒN KHO NGAY LẬP TỨC
+    if (bk.stock <= 0) {
+       return showToast({ type: 'error', title: 'Hết hàng', msg: 'Sản phẩm tạm hết hàng.' });
+    }
+
     cart.add(bk, 1);
     try {
         localStorage.setItem("__cart_bump__", String(Date.now()));
@@ -279,6 +287,11 @@ export default function Categories() {
   };
 
   const handleBuy = (bk) => {
+    // 🔥 CHECK TỒN KHO NGAY LẬP TỨC
+    if (bk.stock <= 0) {
+       return showToast({ type: 'error', title: 'Hết hàng', msg: 'Sản phẩm tạm hết hàng.' });
+    }
+
     cart.add(bk, 1);
     CartSvc.setBuyNow({ id: bk.id, qty: 1 });
     if (!user) nav(`/login?next=${encodeURIComponent("/cart?buy=1")}`);

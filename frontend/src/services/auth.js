@@ -18,7 +18,7 @@ export async function login({ email, password }) {
   return { user: data.user, tokens };
 }
 
-export const me = async () => api.get('/api/me');
+export const me = async () => api.get('/users/me');
 
 export async function logoutAll() {
   const wrap = JSON.parse(localStorage.getItem('bookstore_data_v1') || '{}');

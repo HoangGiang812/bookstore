@@ -15,6 +15,7 @@ const normalizeStatus = (s) =>
 const badge = (s) => ({
   pending: 'text-yellow-700 bg-yellow-50 border-yellow-200',
   processing: 'text-blue-700 bg-blue-50 border-blue-200',
+  assigned: 'text-indigo-700 bg-indigo-50 border-indigo-200',
   shipping: 'text-purple-700 bg-purple-50 border-purple-200',
   delivered: 'text-emerald-700 bg-emerald-50 border-emerald-200',
   completed: 'text-green-700 bg-green-100 border-green-200',
@@ -28,7 +29,8 @@ const badge = (s) => ({
 
 const t = (s) => ({
     pending: 'Chờ duyệt', 
-    processing: 'Đang đóng gói', 
+    processing: 'Đang đóng gói',
+    assigned: 'Đã gán (Chờ shipper)',
     ready_to_pick: 'Chờ lấy',
     delivery_failed: 'Giao thất bại',
     returned: 'Hoàn về kho',
@@ -145,11 +147,12 @@ export default function Orders() {
 
   // Load danh sách shipper khi mở modal
   const openAssignModal = async (order) => {
-      try {
-          const res = await listShippers(); // API lấy user role=shipper
-          setShippers(res.items || res || []); 
-          setAssignModal(order);
-      } catch (e) { alert("Lỗi tải danh sách shipper"); }
+    try {
+        // Gọi API mới (giả sử bạn đã map route này)
+        const res = await api.get('/admin/shippers/load'); 
+        setShippers(res.items || res || []); 
+        setAssignModal(order);
+    } catch (e) { alert("Lỗi tải danh sách shipper"); }
   };
 
   const handleAssign = async (shipperId) => {
@@ -726,7 +729,9 @@ export default function Orders() {
                                 <button 
                                     key={s._id} 
                                     onClick={() => handleAssign(s._id)} 
-                                    className="w-full flex items-center gap-4 p-3 hover:bg-blue-50 border border-transparent hover:border-blue-200 rounded-xl transition-all group text-left"
+                                    className={`w-full flex items-center gap-4 p-3 border rounded-xl transition-all group text-left ${
+                                      s.status === 'busy' ? 'bg-orange-50 border-orange-200' : 'hover:bg-blue-50 border-transparent hover:border-blue-200'
+                                  }`}
                                 >
                                     {/* Avatar Shipper */}
                                     <div className="w-10 h-10 rounded-full bg-white border flex items-center justify-center overflow-hidden shrink-0 shadow-sm group-hover:scale-105 transition-transform">
@@ -739,19 +744,23 @@ export default function Orders() {
                                     
                                     {/* Thông tin */}
                                     <div className="flex-1 min-w-0">
-                                        <div className="font-bold text-sm text-gray-900 truncate group-hover:text-blue-700">{s.name}</div>
-                                        <div className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
-                                            {s.phone && (
-                                                <span className="bg-white border px-1.5 py-0.5 rounded flex items-center gap-1 group-hover:border-blue-200 transition">
-                                                    <Phone size={10}/> {s.phone}
-                                                </span>
-                                            )}
-                                            <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Sẵn sàng</span>
-                                        </div>
+                                      <div className="font-bold text-sm text-gray-900">{s.name}</div>
+                                      <div className="flex items-center gap-2 mt-1">
+                                          {/* Badge trạng thái */}
+                                          {s.status === 'busy' ? (
+                                              <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">
+                                                  Bận ({s.taskCount} đơn)
+                                              </span>
+                                          ) : (
+                                              <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">
+                                                  Sẵn sàng ({s.taskCount} đơn)
+                                              </span>
+                                          )}
+                                      </div>
                                     </div>
-
+                                  
                                     {/* Nút chọn */}
-                                    <div className="p-2 rounded-full bg-gray-100 text-gray-400 group-hover:bg-blue-600 group-hover:text-white transition">
+                                    <div className="p-2 rounded-full bg-white border shadow-sm text-gray-400 group-hover:text-blue-600">
                                         <Check size={16}/>
                                     </div>
                                 </button>

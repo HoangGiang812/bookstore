@@ -14,16 +14,16 @@ import { upload, importBooksCSV } from '../../controllers/admin/bookImportContro
 import { dashboardKpis } from '../../controllers/admin/dashboardController.js';
 import { OverviewCtrl } from '../../controllers/admin/overviewController.js';
 import { 
-  list,addOrderNote, refundOrder, approveCancel, rejectCancel 
+  list, addOrderNote, refundOrder, approveCancel, rejectCancel, getShippersWithLoad, assignShipper
 } from '../../controllers/admin/orderAdminController.js';
 
 import { listUsers, lockUnlockUser } from '../../controllers/admin/userAdminController.js';
-import { updateUser, adminTriggerReset } from '../../controllers/admin/userAdminController.js'; // Import thêm updateUser
+import { updateUser, adminTriggerReset } from '../../controllers/admin/userAdminController.js';
 
 import { couponUsages, pauseCoupon, resumeCoupon } from '../../controllers/admin/couponController.js';
 import { 
   listBooks, getBook, createBook, updateBook, removeBook, intake, uploadCover,
-  toggleFeatured // ✅ Import toggleFeatured
+  toggleFeatured
 } from '../../controllers/admin/bookAdminController.js';
 
 // Import các route con
@@ -108,6 +108,8 @@ r.patch('/users/:id/lock', ...guardAdmin, adminAudit, lockUnlockUser);
 
 /** ===== Orders ===== */
 r.get('/orders', ...guardStaff, list);
+r.get('/shippers/load', ...guardStaff, getShippersWithLoad);
+r.post('/orders/:id/assign', ...guardStaff, adminAudit, assignShipper);
 r.patch('/orders/:id/status', ...guardStaff, adminAudit, OrdersCtrl.updateStatus);
 r.post('/orders/:id/notes', ...guardStaff, adminAudit, addOrderNote);
 r.post('/orders/:id/cancel/approve', ...guardStaff, adminAudit, approveCancel);

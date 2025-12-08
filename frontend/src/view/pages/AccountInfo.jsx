@@ -1,365 +1,404 @@
-// src/view/pages/AccountInfo.jsx
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../../store/useAuth';
 import { useUI } from '../../store/useUI';
 import api, { getImageUrl } from '../../services/api';
+import { 
+  User, Calendar, Globe, Mail, Phone, Lock, Camera, 
+  CheckCircle2
+} from 'lucide-react';
 
-/* ------------ Modal shell dùng chung ------------ */
-function ModalShell({open,title,onClose,children,footer}) {
+/* =========================================================================================
+   MODAL COMPONENTS (Giữ nguyên logic cũ, chỉ làm đẹp UI)
+   ========================================================================================= */
+
+function ModalShell({ open, title, onClose, children, footer }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[1000] bg-black/30 flex items-center justify-center p-4">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <div className="text-xl font-semibold">{title}</div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">✕</button>
+    <div className="fixed inset-0 z-[1000] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl animate-fade-in-up">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="text-lg font-bold text-gray-800">{title}</h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full text-gray-400">✕</button>
         </div>
         <div className="p-6">{children}</div>
-        <div className="px-6 py-4 border-t flex items-center justify-end gap-3">{footer}</div>
+        {footer && <div className="px-6 py-4 bg-gray-50 rounded-b-2xl border-t border-gray-100 flex justify-end gap-3">{footer}</div>}
       </div>
     </div>
   );
 }
 
-/* ------------ UI helpers ------------ */
-function Field({label, required, children}) {
-  return (
-    <label className="block">
-      <div className="text-sm font-medium mb-1">
-        {label}{' '}{required && <span className="text-rose-600">*</span>}
-      </div>
-      {children}
-    </label>
-  );
-}
-
-/* ------------ SĐT: KHÔNG OTP ------------ */
-function PhoneModal({open,onClose, defaultValue = '', onUpdated}) {
+function PhoneModal({ open, onClose, defaultValue = '', onUpdated }) {
   const { showToast } = useUI();
-  const [phone,setPhone] = useState(defaultValue);
-  useEffect(()=>{ if (open) setPhone(defaultValue || ''); }, [open, defaultValue]);
-  const save = async ()=>{
-    if (!phone.trim()) return showToast?.({type:'warning',title:'Nhập số điện thoại'});
+  const [phone, setPhone] = useState(defaultValue);
+
+  useEffect(() => { if (open) setPhone(defaultValue || ''); }, [open, defaultValue]);
+
+  const save = async () => {
+    if (!phone.trim()) return showToast?.({ type: 'warning', title: 'Vui lòng nhập số điện thoại' });
     try {
-      await api.patch('/users/me/phone',{ phone: phone.trim() });
+      await api.patch('/users/me/phone', { phone: phone.trim() });
       onUpdated?.(phone.trim());
-      showToast?.({type:'success',title:'Cập nhật SĐT thành công'});
+      showToast?.({ type: 'success', title: 'Cập nhật SĐT thành công' });
       onClose?.();
     } catch (e) {
-      showToast?.({type:'danger',title:'Không cập nhật được SĐT', message: e?.message || 'Lỗi không xác định'});
+      showToast?.({ type: 'danger', title: 'Lỗi', message: e?.message || 'Không cập nhật được SĐT' });
     }
   };
+
   return (
-    <ModalShell open={open} onClose={onClose} title="Cập nhật số điện thoại" footer={<>
-      <button className="btn bg-gray-100 hover:bg-gray-200" onClick={onClose}>Đóng</button>
-      <button className="btn-primary" onClick={save}>Lưu</button>
-    </>}>
-      <label className="block">
-        <div className="text-sm font-medium mb-1">Số điện thoại</div>
-        <input className="input w-full" placeholder="09xxxxxxxx" value={phone} onChange={e=>setPhone(e.target.value)} />
-      </label>
+    <ModalShell 
+      open={open} onClose={onClose} title="Cập nhật Số điện thoại" 
+      footer={
+        <>
+          <button className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-lg" onClick={onClose}>Hủy</button>
+          <button className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md" onClick={save}>Lưu thay đổi</button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-gray-500">Nhập số điện thoại mới để thuận tiện liên lạc.</p>
+        <div className="relative">
+          <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+          <input 
+            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+            placeholder="09xxxxxxxx" value={phone} onChange={e => setPhone(e.target.value)} 
+          />
+        </div>
+      </div>
     </ModalShell>
   );
 }
 
-/* ------------ Đổi mật khẩu ------------ */
-function PasswordModal({open,onClose}) {
+function PasswordModal({ open, onClose }) {
   const { showToast } = useUI();
-  const [oldPwd,setOldPwd] = useState('');
-  const [newPwd,setNewPwd] = useState('');
-  const [confirmPwd,setConfirmPwd] = useState('');
-  const submit = async ()=>{
-    if (!oldPwd || !newPwd || !confirmPwd) return showToast?.({type:'warning',title:'Điền đủ các trường'});
-    if (newPwd !== confirmPwd) return showToast?.({type:'warning',title:'Xác nhận mật khẩu không khớp'});
+  const [oldPwd, setOldPwd] = useState('');
+  const [newPwd, setNewPwd] = useState('');
+  const [confirmPwd, setConfirmPwd] = useState('');
+
+  const submit = async () => {
+    if (!oldPwd || !newPwd || !confirmPwd) return showToast?.({ type: 'warning', title: 'Vui lòng điền đầy đủ thông tin' });
+    if (newPwd !== confirmPwd) return showToast?.({ type: 'warning', title: 'Mật khẩu xác nhận không khớp' });
+    
     try {
-      await api.patch('/users/me/password',{ oldPassword:oldPwd, newPassword:newPwd });
-      showToast?.({type:'success',title:'Đổi mật khẩu thành công'});
+      await api.patch('/users/me/password', { oldPassword: oldPwd, newPassword: newPwd });
+      showToast?.({ type: 'success', title: 'Đổi mật khẩu thành công' });
+      setOldPwd(''); setNewPwd(''); setConfirmPwd('');
       onClose?.();
     } catch (e) {
-      showToast?.({type:'danger',title:'Đổi mật khẩu thất bại', message:e?.message || 'Lỗi không xác định'});
+      showToast?.({ type: 'danger', title: 'Thất bại', message: e?.message || 'Mật khẩu cũ không đúng' });
     }
   };
+
   return (
-    <ModalShell open={open} onClose={onClose} title="Đổi mật khẩu" footer={<>
-      <button className="btn bg-gray-100 hover:bg-gray-200" onClick={onClose}>Huỷ</button>
-      <button className="btn-primary" onClick={submit}>Lưu</button>
-    </>}>
-      <label className="block mb-3">
-        <div className="text-sm font-medium mb-1">Mật khẩu hiện tại</div>
-        <input type="password" className="input w-full" autoComplete="current-password" value={oldPwd} onChange={e=>setOldPwd(e.target.value)}/>
-      </label>
-      <label className="block mb-3">
-        <div className="text-sm font-medium mb-1">Mật khẩu mới</div>
-        <input type="password" className="input w-full" autoComplete="new-password" name="new-password" value={newPwd} onChange={e=>setNewPwd(e.target.value)}/>
-      </label>
-      <label className="block">
-        <div className="text-sm font-medium mb-1">Xác nhận mật khẩu mới</div>
-        <input type="password" className="input w-full" autoComplete="new-password" name="confirm-new-password" value={confirmPwd} onChange={e=>setConfirmPwd(e.target.value)}/>
-      </label>
+    <ModalShell 
+      open={open} onClose={onClose} title="Đổi mật khẩu" 
+      footer={
+        <>
+          <button className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-lg" onClick={onClose}>Hủy</button>
+          <button className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-md" onClick={submit}>Cập nhật</button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <input type="password" placeholder="Mật khẩu hiện tại" className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+          value={oldPwd} onChange={e => setOldPwd(e.target.value)} />
+        <input type="password" placeholder="Mật khẩu mới" className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+          value={newPwd} onChange={e => setNewPwd(e.target.value)} />
+        <input type="password" placeholder="Xác nhận mật khẩu mới" className="w-full px-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" 
+          value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} />
+      </div>
     </ModalShell>
   );
 }
 
-/* ------------ PIN ------------ */
-function PinModal({open,onClose}) {
-  const { showToast } = useUI();
-  const [pin,setPin] = useState('');
-  const [confirm,setConfirm] = useState('');
-  const submit = async ()=>{
-    if (!/^\d{4,6}$/.test(pin)) return showToast?.({type:'warning',title:'PIN phải 4–6 chữ số'});
-    if (pin !== confirm) return showToast?.({type:'warning',title:'Xác nhận PIN không khớp'});
-    try { await api.patch('/users/me/pin',{ pin }); } catch { await api.patch('/users/me/profile',{ pin }); }
-    showToast?.({type:'success',title:'Thiết lập PIN thành công'}); onClose?.();
-  };
-  return (
-    <ModalShell open={open} onClose={onClose} title="Thiết lập mã PIN" footer={<>
-      <button className="btn bg-gray-100 hover:bg-gray-200" onClick={onClose}>Huỷ</button>
-      <button className="btn-primary" onClick={submit}>Lưu</button>
-    </>}>
-      <label className="block mb-3">
-        <div className="text-sm font-medium mb-1">PIN mới</div>
-        <input className="input w-full" placeholder="4–6 chữ số" value={pin} onChange={e=>setPin(e.target.value)} />
-      </label>
-      <label className="block">
-        <div className="text-sm font-medium mb-1">Xác nhận PIN</div>
-        <input className="input w-full" value={confirm} onChange={e=>setConfirm(e.target.value)} />
-      </label>
-    </ModalShell>
-  );
-}
+/* =========================================================================================
+   MAIN SCREEN
+   ========================================================================================= */
 
-function DeleteRequestModal({open,onClose}) {
-  const { showToast } = useUI();
-  const [reason,setReason] = useState('');
-  const submit = async ()=>{ try { await api.post('/users/me/delete-request',{ reason }); } catch {}
-    showToast?.({type:'success',title:'Đã ghi nhận yêu cầu xoá tài khoản'}); onClose?.(); };
-  return (
-    <ModalShell open={open} onClose={onClose} title="Yêu cầu xoá tài khoản" footer={<>
-      <button className="btn bg-gray-100 hover:bg-gray-200" onClick={onClose}>Huỷ</button>
-      <button className="btn-primary" onClick={submit}>Gửi yêu cầu</button>
-    </>}>
-      <label className="block">
-        <div className="text-sm font-medium mb-1">Lý do (không bắt buộc)</div>
-        <textarea className="input w-full min-h-[96px]" placeholder="Bạn muốn chúng tôi xoá tài khoản vì…" value={reason} onChange={e=>setReason(e.target.value)} />
-      </label>
-      <p className="text-xs text-gray-500 mt-3">Hành động này chưa xoá ngay. Chúng tôi sẽ xác minh trước khi xử lý.</p>
-    </ModalShell>
-  );
-}
-
-export default function AccountInfo(){
+export default function AccountInfo() {
   const { user, setUser } = useAuth();
   const { showToast } = useUI();
 
-  const [name,setName]     = useState(user?.name || user?.fullName || '');
-  const [dob,setDob]       = useState(user?.dob || { d:'', m:'', y:'' });
-  const [gender,setGender] = useState(user?.gender || 'Nam');
-  const [nation,setNation] = useState(user?.nation || 'Việt Nam');
-  const [avatar,setAvatar] = useState(user?.avatarUrl || user?.avatar || '/avatar.png');
-  const [avatarFile, setAvatarFile] = useState(null);
+  // --- Local State ---
+  const [name, setName] = useState('');
+  const [dob, setDob] = useState({ d: '', m: '', y: '' });
+  const [gender, setGender] = useState('Nam');
+  const [nation, setNation] = useState('Việt Nam');
+  const [avatar, setAvatar] = useState('/avatar.png'); // Đường dẫn hiển thị (URL hoặc blob)
+  const [userPhone, setUserPhone] = useState('');
+  
+  // --- Upload State ---
+  const [avatarFile, setAvatarFile] = useState(null); // File thực tế để upload
   const fileRef = useRef(null);
-  const [userPhone, setUserPhone] = useState(user?.phone || '');
 
-  useEffect(()=>{ 
-    setUserPhone(user?.phone || '');
-    setName(user?.name || user?.fullName || '');
-    setDob(user?.dob || { d:'', m:'', y:'' });
-    setGender(user?.gender || 'Nam');
-    setNation(user?.nation || 'Việt Nam');
-    setAvatar(user?.avatarUrl || user?.avatar || '/avatar.png');
+  // --- Modals ---
+  const [openPhone, setOpenPhone] = useState(false);
+  const [openPassword, setOpenPassword] = useState(false);
+
+  // --- 1. Đồng bộ dữ liệu từ User Context vào State ---
+  useEffect(() => {
+    if (user) {
+      setName(user.name || user.fullName || '');
+      setDob(user.dob || { d: '', m: '', y: '' });
+      setGender(user.gender || 'Nam');
+      setNation(user.nation || 'Việt Nam');
+      setAvatar(user.avatarUrl || user.avatar || '/avatar.png');
+      setUserPhone(user.phone || '');
+    }
   }, [user]);
 
-  useEffect(()=>{ (async ()=>{ try {
-      const me = await api.get('/users/me');
-      setUser?.(me);
-      setName(me?.name || '');
-      setDob(me?.dob || { d:'', m:'', y:'' });
-      setGender(me?.gender || 'Nam');
-      setNation(me?.nation || 'Việt Nam');
-      setAvatar(me?.avatarUrl || me?.avatar || '/avatar.png');
-      setUserPhone(me?.phone || '');
-    } catch {} })(); },[]);
-
-  const onPickAvatar = ()=>fileRef.current?.click();
-  const onFile = (e)=>{ const f=e.target.files?.[0]; if(!f) return; setAvatar(URL.createObjectURL(f)); setAvatarFile(f); };
-
-  const uploadAvatarIfNeeded = async () => {
-  if (!avatarFile) {
-      return user?.avatarUrl || user?.avatar;
-  }
-
-  try {
-    const formData = new FormData();
-    formData.append('image', avatarFile);
-
-    const res = await api.post('/upload', formData); 
-    
-    console.log("👉 Server Upload Response:", res);
-    let rawPath = res.path || res.url || res.data?.path;
-    if (!rawPath && res.filename) {
-         rawPath = `/uploads/${res.filename}`; 
-    }
-
-    if (!rawPath) {
-        throw new Error("Server trả về thành công nhưng không có đường dẫn ảnh (path/filename).");
-    }
-    const cleanPath = rawPath.replace(/\\/g, '/');
-    const finalPath = (cleanPath.startsWith('http') || cleanPath.startsWith('/')) 
-                      ? cleanPath 
-                      : `/${cleanPath}`;
-
-    return finalPath;
-
-  } catch (error) {
-    console.error("❌ Lỗi upload avatar:", error);
-    throw new Error("Không thể tải ảnh lên server: " + error.message);
-  }
-};
-
-  const saveProfile = async ()=>{
-    try{
-      const finalAvatarPath = await uploadAvatarIfNeeded();
-      
-      await api.patch('/users/me/profile', { 
-          name, 
-          avatar: finalAvatarPath,
-          avatarUrl: finalAvatarPath,
-          dob, 
-          gender, 
-          nation 
-      });
-
-      try { 
-          const me = await api.get('/users/me'); 
-          setUser?.(me); 
+  // --- 2. Gọi API lấy dữ liệu mới nhất khi vào trang ---
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await api.get('/users/me');
+        setUser?.(me);
+        // Cập nhật lại state cục bộ ngay lập tức để tránh delay
+        setName(me.name || '');
+        setDob(me.dob || { d: '', m: '', y: '' });
+        setGender(me.gender || 'Nam');
+        setNation(me.nation || 'Việt Nam');
+        setAvatar(me.avatarUrl || me.avatar || '/avatar.png');
+        setUserPhone(me.phone || '');
       } catch {}
+    })();
+  }, []); // Chỉ chạy 1 lần khi mount
 
-      setAvatarFile(null); // Reset file đã chọn
-      showToast?.({ type:'success', title:'Đã lưu thay đổi' });
-    }catch(e){
-      showToast?.({ type:'danger', title:'Lưu thay đổi thất bại', message:e?.message || 'Lỗi không xác định' });
+  // --- Xử lý chọn ảnh ---
+  const onPickAvatar = () => fileRef.current?.click();
+  const onFile = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setAvatar(URL.createObjectURL(f)); // Preview ngay lập tức
+    setAvatarFile(f); // Lưu file để upload khi bấm Lưu
+  };
+
+  // --- Helper Upload ---
+  const uploadAvatarIfNeeded = async () => {
+    if (!avatarFile) return user?.avatarUrl || user?.avatar; // Không có file mới thì dùng cái cũ
+
+    try {
+      const formData = new FormData();
+      formData.append('image', avatarFile);
+      const res = await api.post('/upload', formData);
+      
+      let rawPath = res.path || res.url || res.data?.path;
+      if (!rawPath && res.filename) rawPath = `/uploads/${res.filename}`;
+      
+      if (!rawPath) throw new Error("Server không trả về đường dẫn ảnh");
+      
+      // Chuẩn hóa đường dẫn
+      const cleanPath = rawPath.replace(/\\/g, '/');
+      return (cleanPath.startsWith('http') || cleanPath.startsWith('/')) ? cleanPath : `/${cleanPath}`;
+    } catch (error) {
+      throw new Error("Lỗi upload ảnh: " + error.message);
     }
   };
 
-  const days = Array.from({length:31},(_,i)=>String(i+1));
-  const months = Array.from({length:12},(_,i)=>String(i+1));
-  const years = Array.from({length:80},(_,i)=>String(new Date().getFullYear()-i));
+  // --- LƯU THAY ĐỔI ---
+  const saveProfile = async () => {
+    try {
+      // 1. Upload ảnh trước (nếu có)
+      const finalAvatarPath = await uploadAvatarIfNeeded();
 
-  const [openPhone,setOpenPhone] = useState(false);
-  const [openPassword,setOpenPassword] = useState(false);
-  const [openPin,setOpenPin] = useState(false);
-  const [openDelete,setOpenDelete] = useState(false);
+      // 2. Gửi API update (đúng format backend cũ yêu cầu)
+      await api.patch('/users/me/profile', {
+        name,
+        avatar: finalAvatarPath,    // Backend cũ map vào u.avatar hoặc u.avatarUrl
+        avatarUrl: finalAvatarPath, // Gửi cả 2 để chắc chắn
+        dob,
+        gender,
+        nation
+      });
+
+      // 3. Gọi lại API lấy thông tin mới nhất để cập nhật Context
+      const me = await api.get('/users/me');
+      setUser?.(me);
+      
+      setAvatarFile(null); // Reset file upload queue
+      showToast?.({ type: 'success', title: 'Cập nhật hồ sơ thành công' });
+
+    } catch (e) {
+      console.error(e);
+      showToast?.({ type: 'danger', title: 'Lỗi', message: e?.message || 'Không lưu được thông tin' });
+    }
+  };
+
+  // Data helpers
+  const days = Array.from({ length: 31 }, (_, i) => String(i + 1));
+  const months = Array.from({ length: 12 }, (_, i) => String(i + 1));
+  const years = Array.from({ length: 80 }, (_, i) => String(new Date().getFullYear() - i));
 
   return (
-    <div className="container px-4 py-6 grid lg:grid-cols-[280px,1fr] gap-6">
-      {/* Sidebar giống các trang khác */}
-      <aside className="bg-white rounded-xl border shadow-sm">
-        <div className="flex items-center gap-3 px-4 py-4 border-b">
-          <div className="w-10 h-10 rounded-full bg-gray-100 grid place-items-center">👤</div>
-          <div>
-            <div className="text-xs text-gray-500">Tài khoản của</div>
-            <div className="font-semibold">{user?.name || user?.email || "Bạn"}</div>
-          </div>
+    <div className="space-y-6">
+      
+      {/* Header */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Hồ sơ cá nhân</h1>
+          <p className="text-gray-500 text-sm mt-1">Quản lý thông tin hồ sơ để bảo mật tài khoản</p>
         </div>
-        <nav className="p-2 text-[15px]">
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-100 font-medium">
-            <span className="w-6 text-center">👤</span> Thông tin tài khoản
-          </div>
-          <Link to="/account/reviews" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
-            <span className="w-6 text-center">⭐</span> Đánh giá sản phẩm
-          </Link>
-          <Link to="/account/comments" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
-            <span className="w-6 text-center">💬</span> Nhận xét của tôi
-          </Link>
-          <Link to="/account/addresses" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
-            <span className="w-6 text-center">📍</span> Sổ địa chỉ
-          </Link>
-          <Link to="/orders" className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50">
-            <span className="w-6 text-center">🧾</span> Quản lý đơn hàng
-          </Link>
-        </nav>
-      </aside>
+        <button 
+          onClick={saveProfile} 
+          className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-95"
+        >
+          <CheckCircle2 size={18} /> Lưu thay đổi
+        </button>
+      </div>
 
-      {/* Content */}
-      <section className="bg-white rounded-xl border shadow-sm p-5">
-        <h1 className="text-2xl font-bold mb-6">Thông tin tài khoản</h1>
+      <div className="grid lg:grid-cols-3 gap-6">
+        
+        {/* --- CỘT TRÁI: THÔNG TIN CÁ NHÂN --- */}
+        <div className="lg:col-span-2 space-y-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+            <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
+              <User size={20} className="text-blue-600"/> Thông tin chung
+            </h2>
+            
+            <div className="flex flex-col md:flex-row gap-8 items-start">
+              
+              {/* Avatar Uploader */}
+              <div className="flex flex-col items-center gap-4 mx-auto md:mx-0">
+                <div className="relative group cursor-pointer" onClick={onPickAvatar}>
+                  <div className="w-32 h-32 rounded-full border-4 border-white shadow-xl overflow-hidden bg-gray-100 relative">
+                     <img 
+                      src={avatar?.startsWith('blob:') ? avatar : getImageUrl(avatar)} 
+                      onError={(e) => { e.currentTarget.src = '/avatar.png' }}
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      alt="Avatar"
+                    />
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white font-medium text-xs">
+                      Đổi ảnh
+                    </div>
+                  </div>
+                  <button className="absolute bottom-1 right-1 p-2 bg-blue-600 text-white rounded-full shadow-md border-2 border-white hover:bg-blue-700">
+                    <Camera size={16} />
+                  </button>
+                </div>
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile} />
+                <p className="text-xs text-gray-400 text-center">Dụng lượng &lt; 1MB<br/>Định dạng: JPG, PNG</p>
+              </div>
 
-        <div className="grid lg:grid-cols-2 gap-6">
-          <div className="card p-5">
-            <div className="text-lg font-semibold mb-4">Thông tin cá nhân</div>
-            <div className="grid md:grid-cols-3 gap-6 items-start">
-              <div className="flex flex-col items-center gap-3">
-                <div className="relative">
-                  <img 
-                    src={avatar?.startsWith('blob:') ? avatar : getImageUrl(avatar)} 
-                    onError={(e)=>{e.currentTarget.src='/avatar.png'}} 
-                    className="w-32 h-32 rounded-full object-cover border shadow-sm" 
+              {/* Form Fields */}
+              <div className="flex-1 w-full grid gap-5">
+                
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold text-gray-700">Họ & Tên</label>
+                  <input 
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                    value={name} onChange={e => setName(e.target.value)} placeholder="Nhập họ tên"
                   />
-                  
-                  <button onClick={onPickAvatar} className="absolute -bottom-2 -right-2 px-2 py-1 rounded-full text-xs bg-gray-100 hover:bg-gray-200 border" title="Đổi ảnh">✎</button>
                 </div>
-                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onFile}/>
-              </div>
 
-              <div className="md:col-span-2 space-y-4">
-                <Field label="Họ & Tên"><input className="input w-full" value={name} onChange={e=>setName(e.target.value)} /></Field>
-
-                <div>
-                  <div className="text-sm font-medium mb-1">Ngày sinh</div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <select className="input w-full" value={dob.d} onChange={e=>setDob({...dob,d:e.target.value})}><option value="">Ngày</option>{days.map(d=><option key={d} value={d}>{d}</option>)}</select>
-                    <select className="input w-full" value={dob.m} onChange={e=>setDob({...dob,m:e.target.value})}><option value="">Tháng</option>{months.map(m=><option key={m} value={m}>{m}</option>)}</select>
-                    <select className="input w-full" value={dob.y} onChange={e=>setDob({...dob,y:e.target.value})}><option value="">Năm</option>{years.map(y=><option key={y} value={y}>{y}</option>)}</select>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-gray-700 block">Ngày sinh</label>
+                  <div className="flex gap-3"> {/* Tăng khoảng cách giữa các ô chọn */}
+                       <select className="flex-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:bg-white focus:border-blue-500 transition-all" 
+                         value={dob.d} onChange={e => setDob({ ...dob, d: e.target.value })}>
+                         <option value="">Ngày</option>{days.map(d => <option key={d} value={d}>{d}</option>)}
+                       </select>
+                       <select className="flex-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:bg-white focus:border-blue-500 transition-all" 
+                         value={dob.m} onChange={e => setDob({ ...dob, m: e.target.value })}>
+                         <option value="">Tháng</option>{months.map(m => <option key={m} value={m}>{m}</option>)}
+                       </select>
+                       <select className="flex-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:bg-white focus:border-blue-500 transition-all" 
+                         value={dob.y} onChange={e => setDob({ ...dob, y: e.target.value })}>
+                         <option value="">Năm</option>{years.map(y => <option key={y} value={y}>{y}</option>)}
+                       </select>
                   </div>
                 </div>
 
-                <div>
-                  <div className="text-sm font-medium mb-1">Giới tính</div>
-                  <div className="flex items-center gap-6">
-                    {['Nam','Nữ','Khác'].map(g=>(
-                      <label key={g} className="inline-flex items-center gap-2">
-                        <input type="radio" name="gender" className="accent-purple-600" checked={gender===g} onChange={()=>setGender(g)} />
-                        {g}
-                      </label>
-                    ))}
+                {/* Phần Giới tính */}
+                <div className="space-y-2 mt-5"> {/* Thêm mt-5 để tạo khoảng cách với phần trên */}
+                  <label className="text-sm font-semibold text-gray-700 block">Giới tính</label>
+                  <div className="flex items-center gap-6 py-2"> {/* Tăng khoảng cách giữa các lựa chọn */}
+                      {['Nam', 'Nữ', 'Khác'].map(g => (
+                        <label key={g} className="inline-flex items-center gap-2 cursor-pointer group">
+                          <input type="radio" name="gender" className="accent-blue-600 w-4 h-4 cursor-pointer" 
+                            checked={gender === g} onChange={() => setGender(g)} />
+                          <span className={`${gender === g ? 'text-blue-600 font-medium' : 'text-gray-700 group-hover:text-blue-600'} transition-colors`}>{g}</span>
+                        </label>
+                      ))}
                   </div>
                 </div>
 
-                <Field label="Quốc tịch">
-                  <select className="input w-full" value={nation} onChange={e=>setNation(e.target.value)}>
-                    <option>Việt Nam</option><option>Hoa Kỳ</option><option>Nhật Bản</option><option>Khác</option>
-                  </select>
-                </Field>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-semibold text-gray-700">Quốc tịch</label>
+                  <div className="relative">
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <select 
+                      className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none appearance-none"
+                      value={nation} onChange={e => setNation(e.target.value)}
+                    >
+                      <option>Việt Nam</option><option>Hoa Kỳ</option><option>Nhật Bản</option><option>Hàn Quốc</option><option>Khác</option>
+                    </select>
+                  </div>
+                </div>
 
-                <button onClick={saveProfile} className="btn-primary mt-2">Lưu thay đổi</button>
               </div>
             </div>
-          </div>
-
-          <div className="card p-5 space-y-4">
-            <div className="text-lg font-semibold">Số điện thoại và Email</div>
-            <div className="flex items-center justify-between p-3 border rounded-lg">
-              <div><div className="font-medium">Số điện thoại</div><div className="text-gray-600 text-sm">{userPhone || 'Chưa cập nhật'}</div></div>
-              <button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPhone(true)}>Cập nhật</button>
-            </div>
-            <div className="flex items-center justify-between p-3 border rounded-lg">
-              <div><div className="font-medium">Địa chỉ email</div><div className="text-gray-600 text-sm">{user?.email || 'Thêm địa chỉ email'}</div></div>
-              <button className="btn bg-gray-100 hover:bg-gray-200" disabled>Cập nhật</button>
-            </div>
-
-            <div className="text-lg font-semibold pt-2">Bảo mật</div>
-            <div className="flex items-center justify-between p-3 border rounded-lg"><div className="font-medium">Thiết lập mật khẩu</div><button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPassword(true)}>Cập nhật</button></div>
-            <div className="flex items-center justify-between p-3 border rounded-lg"><div className="font-medium">Thiết lập mã PIN</div><button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenPin(true)}>Thiết lập</button></div>
-            <div className="flex items-center justify-between p-3 border rounded-lg"><div className="font-medium">Yêu cầu xoá tài khoản</div><button className="btn bg-gray-100 hover:bg-gray-200" onClick={()=>setOpenDelete(true)}>Yêu cầu</button></div>
           </div>
         </div>
 
-        <PhoneModal open={openPhone} onClose={()=>setOpenPhone(false)} defaultValue={userPhone} onUpdated={async (p)=>{ setUserPhone(p); try{ const me=await api.get('/users/me'); setUser?.(me);}catch{}}} />
-        <PasswordModal open={openPassword} onClose={()=>setOpenPassword(false)} />
-        <PinModal open={openPin} onClose={()=>setOpenPin(false)} />
-        <DeleteRequestModal open={openDelete} onClose={()=>setOpenDelete(false)} />
-      </section>
+        {/* --- CỘT PHẢI: LIÊN HỆ & BẢO MẬT --- */}
+        <div className="space-y-6">
+          
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+             <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <Phone size={20} className="text-green-600"/> Liên hệ
+            </h2>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                 <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="w-8 h-8 rounded-full bg-green-100 text-green-600 flex items-center justify-center shrink-0"><Phone size={14}/></div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-500 font-medium uppercase">Số điện thoại</p>
+                      <p className="text-sm font-semibold text-gray-800 truncate">{userPhone || 'Chưa có'}</p>
+                    </div>
+                 </div>
+                 <button onClick={() => setOpenPhone(true)} className="text-xs font-semibold text-blue-600 hover:underline">Thay đổi</button>
+              </div>
+
+              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                 <div className="flex items-center gap-3 overflow-hidden">
+                    <div className="w-8 h-8 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center shrink-0"><Mail size={14}/></div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-500 font-medium uppercase">Email</p>
+                      <p className="text-sm font-semibold text-gray-800 truncate">{user?.email}</p>
+                    </div>
+                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+             <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <Lock size={20} className="text-rose-600"/> Bảo mật
+            </h2>
+            <div className="p-4 rounded-xl border border-rose-100 bg-rose-50 flex items-start gap-4">
+               <div className="p-2 bg-white rounded-full shadow-sm text-rose-500"><Lock size={20}/></div>
+               <div className="flex-1">
+                 <h4 className="text-sm font-bold text-gray-800">Mật khẩu</h4>
+                 <p className="text-xs text-gray-500 mt-1 mb-3">Đổi mật khẩu định kỳ để bảo vệ tài khoản.</p>
+                 <button onClick={() => setOpenPassword(true)} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 text-xs font-semibold rounded-lg hover:border-blue-500 hover:text-blue-600 transition-colors">
+                   Đổi mật khẩu
+                 </button>
+               </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Popup Modals */}
+      <PhoneModal open={openPhone} onClose={() => setOpenPhone(false)} defaultValue={userPhone} 
+        onUpdated={async (p) => { 
+           setUserPhone(p); 
+           try { const me = await api.get('/users/me'); setUser?.(me); } catch {} 
+        }} 
+      />
+      <PasswordModal open={openPassword} onClose={() => setOpenPassword(false)} />
+      
     </div>
   );
 }

@@ -178,57 +178,7 @@ export default function AccountReviews() {
   };
 
   return (
-    <div className="bg-gray-50">
-      {/* breadcrumb */}
-      <div className="container px-4 pt-4 text-sm text-gray-500">
-        <Link to="/" className="hover:underline">
-          Trang chủ
-        </Link>
-        <span className="mx-2">›</span>
-        <span>Đánh giá sản phẩm</span>
-      </div>
-
-      <div className="container px-4 py-6 grid lg:grid-cols-[280px,1fr] gap-6">
-        {/* Sidebar */}
-        <aside className="bg-white rounded-xl border shadow-sm">
-          <div className="flex items-center gap-3 px-4 py-4 border-b">
-            <div className="w-10 h-10 rounded-full bg-gray-100 grid place-items-center">👤</div>
-            <div>
-              <div className="text-xs text-gray-500">Tài khoản của</div>
-              <div className="font-semibold text-gray-900">{user?.name || user?.email || 'Bạn'}</div>
-            </div>
-          </div>
-          <nav className="p-2 text-[15px]">
-            <Link
-              to="/account/info"
-              className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
-            >
-              <span className="w-6 text-center">👤</span> Thông tin tài khoản
-            </Link>
-            <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-100 text-gray-900 font-medium">
-              <span className="w-6 text-center">⭐</span> Đánh giá sản phẩm
-            </div>
-            <Link
-              to="/account/comments"
-              className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
-            >
-              <span className="w-6 text-center">💬</span> Nhận xét của tôi
-            </Link>
-            <Link
-              to="/account/addresses"
-              className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
-            >
-              <span className="w-6 text-center">📍</span> Sổ địa chỉ
-            </Link>
-            <Link
-              to="/orders"
-              className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-700"
-            >
-              <span className="w-6 text-center">🧾</span> Đơn hàng của tôi
-            </Link>
-          </nav>
-        </aside>
-
+    <>
         {/* Content */}
         <section className="bg-white rounded-xl border shadow-sm p-5">
           <h1 className="text-2xl font-semibold mb-4">Đánh giá sản phẩm</h1>
@@ -317,7 +267,6 @@ export default function AccountReviews() {
             </div>
           )}
         </section>
-      </div>
-    </div>
+      </>
   );
 }

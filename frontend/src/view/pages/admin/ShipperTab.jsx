@@ -6,6 +6,7 @@ import {
 import ImageUploader from './ImageUploader';
 import { useUI } from '@/store/useUI';
 import * as shipperService from '@/services/shipper';
+import api from '@/services/api';
 
 const FAIL_REASONS = [
     "Khách không nghe máy", "Sai địa chỉ / Không tìm thấy", 
@@ -43,8 +44,18 @@ export default function ShipperTab() {
   useEffect(() => { loadData(); }, []);
   useEffect(() => { setPage(1); }, [activeTab]);
 
-  const deliveryList = useMemo(() => deliveryTasks.filter(t => ['ready_to_pick', 'shipping', 'delivery_failed', 'returned'].includes(t.status)), [deliveryTasks]);
-  const rmaList = useMemo(() => rmaTasks.filter(t => ['picking', 'picked'].includes(t.status)), [rmaTasks]);
+  const replyTask = async (id, action) => {
+    try {
+        await api.post(`/shipper/tasks/${id}/reply`, { action }); // Gọi API replyAssignment
+        showToast({ type: 'success', title: action === 'accept' ? 'Đã nhận đơn' : 'Đã từ chối' });
+        loadData(); // Tải lại danh sách
+    } catch (e) { alert(e.message); }
+  };
+  const deliveryList = useMemo(() => 
+    deliveryTasks.filter(t => ['assigned', 'ready_to_pick', 'shipping', 'delivery_failed', 'returned'].includes(t.status)), [deliveryTasks]);
+  const rmaList = useMemo(() => 
+    rmaTasks.filter(t => ['assigned', 'approved', 'picking', 'picked'].includes(t.status)), 
+    [rmaTasks]);
   const historyList = useMemo(() => {
       // Đơn GIAO đã xong
       const doneDel = deliveryTasks.filter(t => ['delivered', 'completed', 'cancelled', 'refunded'].includes(t.status));
@@ -70,6 +81,14 @@ export default function ShipperTab() {
     const totalPages = Math.ceil(currentList.length / ITEMS_PER_PAGE);
     const paginatedList = currentList.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
+    const replyRMA = async (id, action) => {
+        try {
+            await api.post(`/shipper/rma-tasks/${id}/reply`, { action });
+            showToast({ type: 'success', title: action === 'accept' ? 'Đã nhận đơn trả' : 'Đã từ chối' });
+            loadData();
+        } catch (e) { alert(e.message); }
+    };
+
   const confirmAction = async () => {
       if (!modal) return;
       const { type, id } = modal;
@@ -92,6 +111,8 @@ export default function ShipperTab() {
       } catch (e) { showToast({ type: 'error', title: 'Lỗi', message: e.message }); } 
       finally { setSubmitting(false); }
   };
+
+  
 
   const Card = ({ item, isRMA }) => {
       // LOGIC THÔNG MINH ĐỂ LẤY ĐỊA CHỈ & THÔNG TIN
@@ -205,19 +226,30 @@ export default function ShipperTab() {
 
               {/* Actions */}
               <div className="mt-4 pl-3 grid grid-cols-2 gap-2">
-                  {!isRMA && item.status === 'ready_to_pick' && <Btn onClick={()=>setModal({type:'pickup', id:item._id})} text="Lấy hàng" color="indigo" icon={Package}/>}
-                  {!isRMA && item.status === 'shipping' && (
+                    {!isRMA && item.status === 'assigned' && (
+                        <>
+                            <Btn onClick={() => replyTask(item._id, 'accept')} text="Nhận đơn" color="indigo" icon={Check}/>
+                            <Btn onClick={() => replyTask(item._id, 'reject')} text="Từ chối" color="white" icon={X}/>
+                        </>
+                    )}
+                    {!isRMA && item.status === 'ready_to_pick' && <Btn onClick={()=>setModal({type:'pickup', id:item._id})} text="Lấy hàng" color="indigo" icon={Package}/>}
+                    {!isRMA && item.status === 'shipping' && (
                       <>
                         <Btn onClick={()=>setModal({type:'fail', id:item._id})} text="Thất bại" color="white"/>
                         <Btn onClick={()=>setModal({type:'success', id:item._id})} text="Giao xong" color="green" icon={Check}/>
                       </>
-                  )}
-                  {!isRMA && item.status === 'delivery_failed' && <Btn onClick={()=>setModal({type:'retry', id:item._id})} text="Giao lại" color="orange" icon={RotateCcw}/>}
-                  {!isRMA && item.status === 'returned' && <Btn onClick={()=>setModal({type:'return_warehouse', id:item._id})} text="Trả kho" color="red" icon={ArchiveRestore}/>}
-
-                  {isRMA && item.status === 'picking' && <Btn onClick={()=>setModal({type:'pickup_rma', id:item._id})} text="Đã lấy hàng" color="orange" icon={Package}/>}
-                  {isRMA && item.status === 'picked' && <Btn onClick={()=>setModal({type:'dropoff_rma', id:item._id})} text="Trả kho" color="red" icon={ArchiveRestore}/>}
-              </div>
+                    )}
+                    {!isRMA && item.status === 'delivery_failed' && <Btn onClick={()=>setModal({type:'retry', id:item._id})} text="Giao lại" color="orange" icon={RotateCcw}/>}
+                    {!isRMA && item.status === 'returned' && <Btn onClick={()=>setModal({type:'return_warehouse', id:item._id})} text="Trả kho" color="red" icon={ArchiveRestore}/>}
+                    {isRMA && item.status === 'assigned' && (
+                        <>
+                            <Btn onClick={() => replyRMA(item._id, 'accept')} text="Nhận đơn trả" color="indigo" icon={Check}/>
+                            <Btn onClick={() => replyRMA(item._id, 'reject')} text="Từ chối" color="white" icon={X}/>
+                        </>
+                    )}
+                    {isRMA && item.status === 'picking' && <Btn onClick={()=>setModal({type:'pickup_rma', id:item._id})} text="Đã lấy hàng" color="orange" icon={Package}/>}
+                    {isRMA && item.status === 'picked' && <Btn onClick={()=>setModal({type:'dropoff_rma', id:item._id})} text="Trả kho" color="red" icon={ArchiveRestore}/>}
+                </div>
           </div>
       );
   };

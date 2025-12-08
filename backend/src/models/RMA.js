@@ -18,7 +18,7 @@ const RMASchema = new Schema({
   // Trạng thái vận hành
   status: { 
     type: String,
-    enum: ['requested', 'approved', 'picking', 'picked', 'returned_to_warehouse', 'processed', 'rejected', 'cancelled', 'refunded'],
+    enum: ['requested', 'approved','assigned', 'picking', 'picked', 'returned_to_warehouse', 'processed', 'rejected', 'cancelled', 'refunded'],
     default: 'requested' 
   },
   
