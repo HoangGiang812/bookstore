@@ -4,6 +4,8 @@ import { Transaction } from '../../models/Transaction.js';
 import { User } from '../../models/User.js';
 import { RMA } from '../../models/RMA.js';
 
+const normalize = (str) => String(str || '').toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
 function pushHistory(o, type, by = 'admin', note = '', extra = {}) {
   o.history = Array.isArray(o.history) ? o.history : [];
   const ts = new Date();
@@ -365,6 +367,15 @@ export const assignShipper = async (req, res) => {
   try {
     const o = await Order.findById(id);
     if (!o) return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+    if (o.shipping && o.shipping.shipperId && String(o.shipping.shipperId) !== shipperId) {
+        // Populate tên shipper để báo lỗi rõ ràng (Optional)
+        await o.populate('shipping.shipperId', 'name');
+        const currentShipperName = o.shipping.shipperId?.name || 'người khác';
+        
+        return res.status(409).json({ 
+            message: `Chậm một bước! Đơn này vừa được nhận bởi ${currentShipperName}. Vui lòng tải lại trang.` 
+        });
+    }
     if (!['processing', 'ready_to_pick'].includes(o.status)) {
         return res.status(400).json({ 
             message: `Không thể gán Shipper vì đơn đang ở trạng thái: ${o.status}` 
@@ -385,6 +396,9 @@ export const assignShipper = async (req, res) => {
     o.shipping.shipperId = shipper._id;
     o.shipping.assignedAt = new Date();
     o.shipping.status = 'pending_confirmation';
+    o.shipping.method = 'INTERNAL'; 
+    o.shipping.carrier = null;
+    o.shipping.trackingCode = null;
 
     // Thêm log vào mảng logs (nếu mảng chưa có thì tạo mới)
     const newLog = { status: 'assigned', note: `Gán cho: ${shipper.name}`, at: new Date() };
@@ -493,34 +507,90 @@ export const list = async (req, res) => {
 
 export const getShippersWithLoad = async (req, res) => {
   try {
+    const { orderId, rmaId } = req.query; // <--- Nhận thêm rmaId
+
+    // 1. Lấy danh sách Shipper
     const shippers = await User.find({ role: 'shipper', isActive: true })
-        .select('name phone avatarUrl email')
+        .select('name phone avatarUrl email addresses')
         .lean();
 
-    // 1. Đếm đơn Giao hàng (Order)
+    // 2. Xác định Địa chỉ Cần Xử Lý (Target Address)
+    let targetAddr = null;
+
+    // Trường hợp A: Gán đơn Giao hàng
+    if (orderId) {
+        const order = await Order.findById(orderId).select('shippingAddress');
+        targetAddr = order?.shippingAddress;
+    } 
+    // Trường hợp B: Gán đơn Đổi trả (RMA)
+    else if (rmaId) {
+        const rma = await RMA.findById(rmaId).populate('orderId', 'shippingAddress');
+        // Ưu tiên địa chỉ pickup riêng của RMA, nếu không có thì lấy địa chỉ giao của đơn gốc
+        targetAddr = rma?.pickupAddress || rma?.orderId?.shippingAddress;
+    }
+
+    // 3. Đếm task (Code đếm số lượng đơn shipper đang giữ - Giữ nguyên)
     const activeOrderStatuses = ['assigned', 'ready_to_pick', 'picking', 'picked', 'shipping', 'delivery_failed'];
     const orderCounts = await Order.aggregate([
         { $match: { status: { $in: activeOrderStatuses }, 'shipping.shipperId': { $ne: null } } },
         { $group: { _id: '$shipping.shipperId', count: { $sum: 1 } } }
     ]);
-
-    // 2. Đếm đơn Đổi trả (RMA) - [MỚI]
     const activeRMAStatuses = ['assigned', 'approved', 'picking', 'picked'];
     const rmaCounts = await RMA.aggregate([
         { $match: { status: { $in: activeRMAStatuses }, returnShipperId: { $ne: null } } },
         { $group: { _id: '$returnShipperId', count: { $sum: 1 } } }
     ]);
 
-    // 3. Tổng hợp
     const taskMap = {};
     orderCounts.forEach(t => { taskMap[String(t._id)] = (taskMap[String(t._id)] || 0) + t.count; });
     rmaCounts.forEach(t => { taskMap[String(t._id)] = (taskMap[String(t._id)] || 0) + t.count; });
 
-    const result = shippers.map(s => ({
-        ...s,
-        taskCount: taskMap[String(s._id)] || 0,
-        status: (taskMap[String(s._id)] || 0) > 5 ? 'busy' : 'ready'
-    })).sort((a, b) => a.taskCount - b.taskCount);
+    // 4. CHẤM ĐIỂM (MATCHING LOGIC)
+    const result = shippers.map(s => {
+        const load = taskMap[String(s._id)] || 0;
+        let matchScore = 0;
+        let matchLabel = '';
+
+        if (targetAddr && s.addresses && s.addresses.length > 0) {
+            // Lấy địa chỉ hoạt động của Shipper
+            const shipperAddr = s.addresses.find(a => a.isDefault) || s.addresses[0];
+            
+            const sProv = normalize(shipperAddr.province);
+            const sDist = normalize(shipperAddr.district);
+            const sWard = normalize(shipperAddr.ward);
+
+            const tProv = normalize(targetAddr.province);
+            const tDist = normalize(targetAddr.district);
+            const tWard = normalize(targetAddr.ward);
+
+            if (sProv === tProv) {
+                matchScore = 1;
+                matchLabel = 'Cùng Tỉnh/Thành';
+                if (sDist === tDist) {
+                    matchScore = 2;
+                    matchLabel = 'Tiện đường (Cùng Quận)';
+                    if (sWard === tWard) {
+                        matchScore = 3;
+                        matchLabel = 'Rất gần (Cùng Phường)';
+                    }
+                }
+            }
+        }
+
+        return {
+            ...s,
+            taskCount: load,
+            status: load > 5 ? 'busy' : 'ready',
+            matchScore,
+            matchLabel
+        };
+    });
+
+    // 5. Sắp xếp: Điểm cao trước -> Ít việc trước
+    result.sort((a, b) => {
+        if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+        return a.taskCount - b.taskCount;
+    });
 
     res.json(result);
   } catch (e) {

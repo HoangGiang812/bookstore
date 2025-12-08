@@ -3,7 +3,7 @@ import * as rmaService from '@/services/rma.js';
 import { listShippers } from '@/services/admin';
 import { 
     Search, RefreshCw, CheckCircle, XCircle, Eye, X, Package, 
-    AlertTriangle, Truck, CreditCard, Filter, ChevronLeft, ChevronRight, User, Clock, ExternalLink
+    AlertTriangle, Truck, CreditCard, Filter, ChevronLeft, ChevronRight, User, Clock, ExternalLink, MapPin
 } from 'lucide-react';
 import { api, getImageUrl } from '@/services/api';
 import ImageUploader from '@/view/pages/admin/ImageUploader';
@@ -43,22 +43,42 @@ const RMADetailModal = ({ rma, onClose, onUpdateStatus }) => {
   const [showRejectForm, setShowRejectForm] = useState(false); 
   const [rejectReason, setRejectReason] = useState(''); 
 
-  useEffect(() => {
-    // Gọi endpoint lấy shipper có load
-    api.get('/admin/shippers/load').then(res => setShipperList(res.items || res || [])).catch(()=>{});
-    }, []);
+    useEffect(() => {
+        // Gửi ID của RMA để backend tính điểm gợi ý
+        api.get(`/admin/shippers/load?rmaId=${rma._id}`)
+        .then(res => setShipperList(res.items || res || []))
+        .catch(()=>{});
+    }, [rma._id]);
+
+    const pickupAddr = rma.pickupAddress || rma.orderId?.shippingAddress;
 
   if (!rma) return null;
   const orderTotal = rma.orderId?.total?.grand ?? rma.orderId?.pricing?.grandTotal ?? 0;
 
-  const handleAction = async (status) => {
+  const handleAction = async (actionType) => {
       setErrorMsg('');
+      let status = actionType; // Mặc định status là hành động được bấm
+      let isPool = false;      // Cờ đánh dấu đây là hành động "Đẩy lên chợ"
+
+      // 1. CHUYỂN ĐỔI TÍN HIỆU FRONTEND -> TRẠNG THÁI DB HỢP LỆ
+      if (actionType === 'approved_pool') {
+          status = 'approved'; // Đổi về trạng thái DB chuẩn
+          isPool = true;       // Bật cờ Pool
+      }
+
+      // 2. VALIDATION
+      if (status === 'processed' && !refundProof) { 
+          setErrorMsg("⚠️ Cần ảnh bằng chứng chuyển khoản!"); 
+          return; 
+      }
       
-      // Validation
-      if (status === 'processed' && !refundProof) { setErrorMsg("⚠️ Cần ảnh bằng chứng chuyển khoản!"); return; }
-      if (status === 'approved' && !selectedShipper) { setErrorMsg("⚠️ Vui lòng chọn Shipper!"); return; }
+      // Nếu là duyệt GÁN TRỰC TIẾP (status=approved VÀ không phải Pool) -> Bắt buộc chọn Shipper
+      if (status === 'approved' && !isPool && !selectedShipper) { 
+          setErrorMsg("⚠️ Vui lòng chọn Shipper hoặc bấm 'Đẩy lên Săn đơn'!"); 
+          return; 
+      }
       
-      // Nếu là REJECTED -> Mở Modal nhập lý do (thay vì prompt)
+      // Logic mở modal từ chối (giữ nguyên)
       if (status === 'rejected' && !showRejectForm) {
           setShowRejectForm(true);
           return;
@@ -66,18 +86,25 @@ const RMADetailModal = ({ rma, onClose, onUpdateStatus }) => {
 
       setSubmitting(true);
       try {
-          let payload = { status };
-          if (status === 'approved') payload.shipperId = selectedShipper;
+          // 3. TẠO PAYLOAD GỬI ĐI
+          let payload = { status }; // Lúc này status đã là 'approved' (hợp lệ)
+
+          // Chỉ gửi shipperId nếu là gán trực tiếp (KHÔNG PHẢI POOL)
+          if (status === 'approved' && !isPool) {
+              payload.shipperId = selectedShipper;
+          }
+          // Nếu là Pool (isPool=true), ta KHÔNG gửi shipperId. 
+          // Backend sẽ thấy status='approved' và shipperId=undefined -> Hiểu là đơn chợ.
+
           if (status === 'processed') payload.refundProof = refundProof;
           
-          // [MỚI] Gửi lý do từ chối từ form
           if (status === 'rejected') {
               if (!rejectReason.trim()) throw new Error("Vui lòng nhập lý do từ chối!");
               payload.reason = rejectReason;
           }
 
           await onUpdateStatus(rma._id, payload);
-          setShowRejectForm(false); // Đóng form reject nếu thành công
+          setShowRejectForm(false);
       } catch (e) { setErrorMsg(e.message); } 
       finally { setSubmitting(false); }
   };
@@ -147,42 +174,92 @@ const RMADetailModal = ({ rma, onClose, onUpdateStatus }) => {
               {errorMsg && <div className="mb-4 p-3 bg-red-100 text-red-700 text-sm rounded-lg border border-red-200 flex items-center gap-2 animate-pulse relative z-10"><AlertTriangle size={16}/> {errorMsg}</div>}
 
               <div className="relative z-10">
-                  {rma.status === 'requested' && (
+                    {rma.status === 'requested' && (
                     <div className="space-y-4">
-                        <label className="block text-xs font-bold text-indigo-800 mb-1 uppercase">Chọn Shipper đi lấy:</label>
-                        
-                        {/* VÙNG CHỌN SHIPPER MỚI */}
+                        {/* HIỂN THỊ ĐỊA CHỈ LẤY HÀNG CHO ADMIN BIẾT */}
+                        {pickupAddr && (
+                            <div className="bg-orange-50 border border-orange-100 p-2 rounded-lg flex items-center gap-2 text-sm text-orange-800 mb-2">
+                                <MapPin size={16} className="shrink-0"/>
+                                <span className="font-bold">Lấy hàng tại:</span> 
+                                <span>{pickupAddr.district}, {pickupAddr.province}</span>
+                            </div>
+                        )}
+
+                        <label className="block text-xs font-bold text-indigo-800 mb-1 uppercase">Chọn Shipper đi lấy (Gợi ý):</label>
+
+                        {/* DANH SÁCH SHIPPER THÔNG MINH */}
                         <div className="max-h-[200px] overflow-y-auto border rounded-xl bg-white p-2 space-y-1 custom-scrollbar">
                             {shipperList.map(s => (
                                 <div 
                                     key={s._id}
                                     onClick={() => setSelectedShipper(s._id)}
-                                    className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer border transition-all ${selectedShipper === s._id ? 'border-indigo-600 bg-indigo-50 ring-1 ring-indigo-600' : 'border-transparent hover:bg-gray-50'}`}
+                                    className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer border transition-all ${
+                                        selectedShipper === s._id 
+                                        ? 'border-indigo-600 bg-indigo-50 ring-1 ring-indigo-600' 
+                                        : s.matchScore >= 2 ? 'bg-blue-50 border-blue-200' // Highlight người gần
+                                        : 'border-transparent hover:bg-gray-50'
+                                    }`}
                                 >
-                                    <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden shrink-0">
-                                        {s.avatarUrl ? <img src={getImageUrl(s.avatarUrl)} className="w-full h-full object-cover"/> : <span className="flex items-center justify-center h-full text-xs font-bold">{s.name[0]}</span>}
+                                    {/* Avatar */}
+                                    <div className="w-8 h-8 rounded-full bg-white border flex items-center justify-center overflow-hidden shrink-0 relative">
+                                        {s.avatarUrl ? <img src={getImageUrl(s.avatarUrl)} className="w-full h-full object-cover"/> : <span className="font-bold text-xs text-gray-500">{s.name[0]}</span>}
+                                        {/* Ngôi sao gợi ý */}
+                                        {s.matchScore >= 2 && <div className="absolute -top-1 -right-1 bg-yellow-400 w-2.5 h-2.5 rounded-full border border-white"/>}
                                     </div>
-                                    <div className="flex-1">
-                                        <div className="text-sm font-bold text-gray-800">{s.name}</div>
-                                        <div className="flex gap-2 text-xs">
-                                            <span className="text-gray-500">{s.phone}</span>
-                                            {/* Badge Bận/Rảnh */}
+
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-sm font-bold text-gray-800 truncate">{s.name}</span>
+                                            {s.matchLabel && (
+                                                <span className={`text-[9px] font-bold px-1.5 rounded ${s.matchScore >= 2 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                                                    {s.matchLabel}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex gap-2 text-xs mt-0.5">
                                             {s.status === 'busy' 
-                                                ? <span className="text-red-600 font-bold bg-red-50 px-1.5 rounded">Bận ({s.taskCount})</span>
-                                                : <span className="text-green-600 font-bold bg-green-50 px-1.5 rounded">Rảnh ({s.taskCount})</span>
+                                                ? <span className="text-red-600 font-bold">Bận ({s.taskCount})</span>
+                                                : <span className="text-green-600 font-bold">Rảnh ({s.taskCount})</span>
                                             }
+                                            {s.addresses?.[0] && <span className="text-gray-400 truncate">• {s.addresses[0].district}</span>}
                                         </div>
                                     </div>
+
                                     {selectedShipper === s._id && <CheckCircle size={16} className="text-indigo-600"/>}
                                 </div>
                             ))}
                         </div>
 
-                        <div className="flex gap-3 pt-2">
-                            <button onClick={()=>handleAction('approved')} disabled={submitting} className="btn bg-indigo-600 text-white hover:bg-indigo-700 shadow-md flex-1">
-                                {submitting ? 'Processing...' : 'Gán & Duyệt'}
+                        {/* Các nút bấm giữ nguyên */}
+                        <div className="flex flex-col gap-3 pt-2">
+                            {/* NÚT 1: GÁN TRỰC TIẾP (GIỮ NGUYÊN LOGIC CŨ) */}
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={()=>handleAction('approved')} 
+                                    disabled={submitting || !selectedShipper} // Bắt buộc chọn shipper mới cho bấm
+                                    className="btn bg-indigo-600 text-white hover:bg-indigo-700 shadow-md flex-1 disabled:opacity-50"
+                                >
+                                    {submitting ? '...' : 'Gán Shipper này'}
+                                </button>
+                                
+                                {/* NÚT 2: ĐẨY LÊN CHỢ (MỚI) */}
+                                <button 
+                                    onClick={() => {
+                                        // Gọi handleAction 'approved' nhưng KHÔNG CÓ shipperId
+                                        // Cần sửa nhẹ hàm handleAction để chấp nhận việc này
+                                        handleAction('approved_pool');
+                                    }} 
+                                    disabled={submitting} 
+                                    className="btn bg-orange-500 text-white hover:bg-orange-600 shadow-md flex-1"
+                                >
+                                    Đẩy lên Săn đơn
+                                </button>
+                            </div>
+
+                            {/* NÚT TỪ CHỐI */}
+                            <button onClick={()=>handleAction('rejected')} disabled={submitting} className="w-full btn bg-white border border-red-200 text-red-600 hover:bg-red-50">
+                                Từ chối yêu cầu
                             </button>
-                            <button onClick={()=>handleAction('rejected')} disabled={submitting} className="btn bg-white border border-red-200 text-red-600 hover:bg-red-50 flex-1">Từ chối</button>
                         </div>
                     </div>
                     )}
@@ -425,12 +502,21 @@ export default function RMAList() {
                         return (
                         <tr key={r._id} className="hover:bg-indigo-50/30 transition-colors group cursor-default">
                             <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex flex-col">
-                                <span className="font-bold text-gray-900 text-sm font-mono">{orderCode}</span>
-                                <span className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
-                                    <Clock size={10}/> {new Date(r.createdAt).toLocaleDateString('vi-VN')}
-                                </span>
-                            </div>
+                                <div className="flex flex-col">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-bold text-gray-900 text-sm font-mono">{orderCode}</span>
+                                        
+                                        {/* 🔥 THÊM BADGE SOS CHO RMA */}
+                                        {r.isUrgent && r.status === 'approved' && (
+                                            <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm animate-pulse">
+                                                SOS
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span className="text-[10px] text-gray-400 mt-0.5 flex items-center gap-1">
+                                        <Clock size={10}/> {new Date(r.createdAt).toLocaleDateString('vi-VN')}
+                                    </span>
+                                </div>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap">
                                 <div className="flex items-center gap-3">

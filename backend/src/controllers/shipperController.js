@@ -317,3 +317,86 @@ export const replyRMAAssignment = async (req, res) => {
         res.status(500).json({ message: e.message });
     }
 };
+
+export const getTaskPool = async (req, res) => {
+    try {
+        // Lấy đơn Giao hàng (Processing + Chưa có shipper)
+        const deliveryPool = await Order.find({
+            status: 'processing', // Đơn chờ xử lý
+            'shipping.shipperId': null // Chưa ai nhận
+        })
+        .select('code items shippingAddress total payment status createdAt updatedAt isUrgent')
+        .populate('items.bookId', 'title image') // Lấy ảnh sách để hiển thị
+        .sort({ createdAt: 1 }) // Đơn cũ hiện trước (FIFO)
+        .lean();
+
+        // Lấy đơn Đổi trả (Approved + Chưa có shipper)
+        const rmaPool = await RMA.find({
+            status: 'approved',
+            returnShipperId: null
+        })
+        .populate('orderId', 'code items shippingAddress')
+        
+        // 🔥 THÊM DÒNG NÀY ĐỂ LẤY TÊN VÀ SĐT KHÁCH HÀNG CHO ĐƠN RMA
+        .populate('userId', 'name phone address email') 
+        .select('status createdAt updatedAt items isUrgent pickupAddress')
+        .sort({ createdAt: 1 })
+        .lean();
+
+        res.json({ delivery: deliveryPool, rma: rmaPool });
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+};
+
+// 10. ✅ SHIPPER CHỦ ĐỘNG NHẬN ĐƠN (CLAIM) - QUAN TRỌNG
+export const claimTask = async (req, res) => {
+    try {
+        const { id, type } = req.body; // type: 'delivery' hoặc 'rma'
+
+        if (type === 'delivery') {
+            // 🔥 ATOMIC UPDATE: Chỉ cập nhật nếu shipperId vẫn là null
+            const order = await Order.findOneAndUpdate(
+                { _id: id, status: 'processing', 'shipping.shipperId': null },
+                {
+                    $set: {
+                        status: 'ready_to_pick', // Chuyển thẳng sang chờ lấy
+                        'shipping.shipperId': req.user._id,
+                        'shipping.assignedAt': new Date(),
+                        'shipping.status': 'accepted' // Tự nhận coi như đã accept
+                    },
+                    $push: {
+                        history: { at: new Date(), type: 'shipper_claim', by: 'shipper', note: `Shipper ${req.user.name} chủ động nhận đơn` }
+                    }
+                },
+                { new: true }
+            );
+
+            if (!order) return res.status(409).json({ message: 'Chậm tay rồi! Đơn này đã có người khác nhận.' });
+            return res.json({ ok: 1, type: 'delivery' });
+        } 
+        
+        else if (type === 'rma') {
+            const rma = await RMA.findOneAndUpdate(
+                { _id: id, status: 'approved', returnShipperId: null },
+                {
+                    $set: {
+                        status: 'picking', // Chuyển thẳng sang đi lấy
+                        returnShipperId: req.user._id
+                    }
+                },
+                { new: true }
+            );
+            
+            if (!rma) return res.status(409).json({ message: 'Chậm tay rồi! Đơn này đã có người khác nhận.' });
+            
+            // Đồng bộ sang Order
+            await Order.findByIdAndUpdate(rma.orderId, { rmaStatus: 'picking' });
+            
+            return res.json({ ok: 1, type: 'rma' });
+        }
+
+    } catch (e) {
+        res.status(500).json({ message: e.message });
+    }
+};

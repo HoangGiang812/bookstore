@@ -26,6 +26,7 @@ const RMASchema = new Schema({
   images: [{ type: String }],     // Ảnh bằng chứng khách gửi (hàng lỗi)
   customerNote: { type: String },
   adminNote: { type: String },
+  isUrgent: { type: Boolean, default: false },
 
   // --- [MỚI] THÔNG TIN HOÀN TIỀN & SHIPPER ---
   

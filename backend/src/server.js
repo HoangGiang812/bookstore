@@ -35,6 +35,7 @@ import promotionRouter from './routes/promotions.js';
 import shipperRoutes from './routes/shipper.js';
 import { runAutoCompleteJob } from './cron/autocomplete.js';
 import { runAutoCancelJob } from './cron/autoCancelUnpaid.js';
+import { startLogisticsCron } from './cron/logisticsMonitor.js';
 const app = express();
 
 // CORS: chỉnh origin theo ENV nếu cần
@@ -96,6 +97,8 @@ setInterval(() => {
 setInterval(() => {
   runAutoCancelJob();
 }, 1800000);
+
+startLogisticsCron();
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`API listening on :${PORT}`));

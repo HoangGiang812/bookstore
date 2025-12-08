@@ -103,6 +103,8 @@ const OrderSchema = new Schema({
   // NEW: shipping info
   shipping: { type: ShippingSchema, default: () => ({}) },
 
+  isUrgent: { type: Boolean, default: false },
+
   // Thanh toán
   payment: {
     method: { 

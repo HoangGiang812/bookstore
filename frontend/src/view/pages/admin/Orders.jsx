@@ -148,10 +148,12 @@ export default function Orders() {
   // Load danh sách shipper khi mở modal
   const openAssignModal = async (order) => {
     try {
-        // Gọi API mới (giả sử bạn đã map route này)
-        const res = await api.get('/admin/shippers/load'); 
+        setAssignModal(order); // Set state trước để hiện modal loading (nếu muốn)
+        
+        // 🔥 Gửi thêm param orderId để Backend chấm điểm
+        const res = await api.get(`/admin/shippers/load?orderId=${order._id}`); 
+        
         setShippers(res.items || res || []); 
-        setAssignModal(order);
     } catch (e) { alert("Lỗi tải danh sách shipper"); }
   };
 
@@ -265,7 +267,16 @@ export default function Orders() {
                 return (
                   <tr key={o._id} className="hover:bg-gray-50 transition">
                     <td className="px-6 py-4 font-medium text-blue-600">
-                      #{String(o.code || o._id).slice(-6)}
+                      <div className="flex items-center gap-2">
+                          #{String(o.code).slice(-6)}
+                          
+                          {/* 🔥 BADGE SOS CHO ADMIN */}
+                          {o.isUrgent && normalizeStatus(o.status) === 'processing' && (
+                              <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm flex items-center gap-1">
+                                  SOS
+                              </span>
+                          )}
+                      </div>
                       <div className="text-xs text-gray-400 font-normal mt-0.5">{o.items?.length} sản phẩm</div>
                     </td>
                     <td className="px-6 py-4">
@@ -703,15 +714,28 @@ export default function Orders() {
             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden transform transition-all scale-100" onClick={e => e.stopPropagation()}>
                 
                 {/* Header Modal */}
-                <div className="px-6 py-4 border-b bg-gray-50 flex justify-between items-center">
-                    <div>
-                        <h3 className="text-lg font-bold text-gray-900">Chọn Shipper</h3>
-                        <p className="text-xs text-gray-500 mt-1">
-                           Gán đơn <span className="font-mono font-bold text-blue-600">#{String(assignModal.code || assignModal._id).slice(-6)}</span>
-                        </p>
-                    </div>
-                    <button onClick={() => setAssignModal(null)} className="p-2 hover:bg-gray-200 rounded-full text-gray-500 transition"><X size={20}/></button>
-                </div>
+                <div className="px-6 py-4 border-b bg-gray-50">
+                  <div className="flex justify-between items-start">
+                      <div>
+                          <h3 className="text-lg font-bold text-gray-900">Chọn Shipper</h3>
+                          <p className="text-xs text-gray-500 mt-1">
+                            Gán đơn <span className="font-mono font-bold text-blue-600">#{String(assignModal.code).slice(-6)}</span>
+                          </p>
+                      </div>
+                      <button onClick={() => setAssignModal(null)} className="p-2 hover:bg-gray-200 rounded-full"><X size={20}/></button>
+                  </div>
+                  
+                  {/* 🔥 HIỂN THỊ ĐỊA CHỈ GIAO CỦA ĐƠN HÀNG */}
+                  <div className="mt-3 flex items-start gap-2 text-sm bg-white p-2 rounded-lg border border-gray-200">
+                      <MapPin size={16} className="text-red-500 shrink-0 mt-0.5"/>
+                      <div>
+                          <span className="font-bold text-gray-800">Giao tới: </span>
+                          <span className="text-gray-600">
+                              {assignModal.shippingAddress?.district}, {assignModal.shippingAddress?.province}
+                          </span>
+                      </div>
+                  </div>
+              </div>
 
                 {/* Body List */}
                 <div className="p-2 max-h-[400px] overflow-y-auto custom-scrollbar bg-gray-50/30">
@@ -726,27 +750,50 @@ export default function Orders() {
                             </div>
                         ) : (
                             shippers.map(s => (
-                                <button 
-                                    key={s._id} 
-                                    onClick={() => handleAssign(s._id)} 
-                                    className={`w-full flex items-center gap-4 p-3 border rounded-xl transition-all group text-left ${
-                                      s.status === 'busy' ? 'bg-orange-50 border-orange-200' : 'hover:bg-blue-50 border-transparent hover:border-blue-200'
+                              <button 
+                                  key={s._id} 
+                                  onClick={() => handleAssign(s._id)} 
+                                  // Nếu là gợi ý "Rất gần" hoặc "Cùng quận" -> Highlight nền xanh nhạt
+                                  className={`w-full flex items-center gap-4 p-3 border rounded-xl transition-all group text-left ${
+                                    s.matchScore >= 2 ? 'bg-indigo-50 border-indigo-200 ring-1 ring-indigo-300' : // Highlight mạnh
+                                    s.status === 'busy' ? 'bg-orange-50 border-orange-200 opacity-60' : 
+                                    'hover:bg-gray-50 border-transparent hover:border-blue-200'
                                   }`}
-                                >
-                                    {/* Avatar Shipper */}
-                                    <div className="w-10 h-10 rounded-full bg-white border flex items-center justify-center overflow-hidden shrink-0 shadow-sm group-hover:scale-105 transition-transform">
-                                        {s.avatarUrl || s.avatar ? (
-                                            <img src={getImageUrl(s.avatarUrl || s.avatar)} className="w-full h-full object-cover" alt={s.name}/>
-                                        ) : (
-                                            <span className="font-bold text-gray-500">{s.name?.[0]?.toUpperCase()}</span>
-                                        )}
-                                    </div>
-                                    
-                                    {/* Thông tin */}
-                                    <div className="flex-1 min-w-0">
-                                      <div className="font-bold text-sm text-gray-900">{s.name}</div>
+                              >
+                                  {/* Avatar Shipper (Giữ nguyên) */}
+                                  <div className="w-10 h-10 rounded-full bg-white border flex items-center justify-center overflow-hidden shrink-0 shadow-sm relative">
+                                      {s.avatarUrl ? (
+                                          <img src={getImageUrl(s.avatarUrl)} className="w-full h-full object-cover" alt=""/>
+                                      ) : (
+                                          <span className="font-bold text-gray-500">{s.name?.[0]?.toUpperCase()}</span>
+                                      )}
+                                      
+                                      {/* Icon Ngôi sao nếu là Gợi ý tốt nhất */}
+                                      {s.matchScore >= 2 && (
+                                          <div className="absolute -top-1 -right-1 bg-yellow-400 text-white p-0.5 rounded-full border border-white shadow-sm">
+                                              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                                          </div>
+                                      )}
+                                  </div>
+                                  
+                                  <div className="flex-1 min-w-0">
+                                      <div className="flex justify-between items-center">
+                                          <div className="font-bold text-sm text-gray-900">{s.name}</div>
+                                          
+                                          {/* 🔥 HIỂN THỊ NHÃN GỢI Ý ĐỊA LÝ */}
+                                          {s.matchLabel && (
+                                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                                  s.matchScore === 3 ? 'bg-emerald-100 text-emerald-700' : // Cùng Phường
+                                                  s.matchScore === 2 ? 'bg-blue-100 text-blue-700' :       // Cùng Quận
+                                                  'bg-gray-100 text-gray-600'                              // Cùng Thành phố
+                                              }`}>
+                                                  {s.matchLabel}
+                                              </span>
+                                          )}
+                                      </div>
+
                                       <div className="flex items-center gap-2 mt-1">
-                                          {/* Badge trạng thái */}
+                                          {/* Badge Bận/Rảnh (Giữ nguyên) */}
                                           {s.status === 'busy' ? (
                                               <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-bold">
                                                   Bận ({s.taskCount} đơn)
@@ -756,15 +803,23 @@ export default function Orders() {
                                                   Sẵn sàng ({s.taskCount} đơn)
                                               </span>
                                           )}
+                                          
+                                          {/* Địa chỉ của Shipper (Để Admin đối chiếu) */}
+                                          {s.addresses?.[0] && (
+                                            <span className="text-[10px] text-gray-400 truncate max-w-[120px]" title={`${s.addresses[0].district}, ${s.addresses[0].province}`}>
+                                                {/* Nếu cùng Tỉnh (matchScore >= 1) -> Hiện Quận. Ngược lại hiện Tỉnh */}
+                                                • {s.matchScore >= 1 ? s.addresses[0].district : s.addresses[0].province}
+                                            </span>
+                                          )}
                                       </div>
-                                    </div>
+                                  </div>
                                   
-                                    {/* Nút chọn */}
-                                    <div className="p-2 rounded-full bg-white border shadow-sm text-gray-400 group-hover:text-blue-600">
-                                        <Check size={16}/>
-                                    </div>
-                                </button>
-                            ))
+                                  {/* Nút chọn */}
+                                  <div className={`p-2 rounded-full border shadow-sm ${s.matchScore >= 2 ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-400'}`}>
+                                      <Check size={16}/>
+                                  </div>
+                              </button>
+                          ))
                         )}
                     </div>
                 </div>

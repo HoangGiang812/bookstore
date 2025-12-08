@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useMemo} from 'react';
 import { 
     Truck, MapPin, Phone, Package, RefreshCw, X, RotateCcw, 
-    ArchiveRestore, Check, AlertCircle, Calendar, User, Wallet, ChevronLeft, ChevronRight, ShoppingBag
+    ArchiveRestore, Check, AlertCircle, Calendar, User, Wallet, ChevronLeft, ChevronRight, ShoppingBag, Search
 } from 'lucide-react';
 import ImageUploader from './ImageUploader';
 import { useUI } from '@/store/useUI';
 import * as shipperService from '@/services/shipper';
 import api from '@/services/api';
+
+const normalizeStr = (str) => String(str || '').toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
 const FAIL_REASONS = [
     "Khách không nghe máy", "Sai địa chỉ / Không tìm thấy", 
@@ -17,7 +19,7 @@ const ITEMS_PER_PAGE = 5;
 
 export default function ShipperTab() {
   const { showToast } = useUI();
-  const [activeTab, setActiveTab] = useState('delivery'); 
+  const [activeTab, setActiveTab] = useState('pool');
   const [deliveryTasks, setDeliveryTasks] = useState([]);
   const [rmaTasks, setRmaTasks] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -27,22 +29,39 @@ export default function ShipperTab() {
   const [failReason, setFailReason] = useState(FAIL_REASONS[0]);
   const [proofImage, setProofImage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [pool, setPool] = useState({ delivery: [], rma: [] });
+  const [searchTerm, setSearchTerm] = useState('');
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [resDel, resRMA] = await Promise.all([
+      const [resDel, resRMA, resPool] = await Promise.all([
         shipperService.getTasks(), 
-        shipperService.getRMATasks()
+        shipperService.getRMATasks(),
+        api.get('/shipper/pool')
       ]);
       setDeliveryTasks(resDel || []);
       setRmaTasks(resRMA || []);
+      setPool(resPool || { delivery: [], rma: [] });
     } catch (e) { console.error(e); } 
     finally { setLoading(false); }
   };
 
+  const handleClaim = async (id, type) => {
+      try {
+          await api.post('/shipper/claim', { id, type });
+          showToast({ type: 'success', title: 'Nhận đơn thành công! Đi lấy hàng ngay nào.' });
+          loadData(); // Reload để mất đơn trong chợ, hiện đơn trong tab Giao hàng
+      } catch (e) {
+          showToast({ type: 'error', title: 'Thất bại', message: e.response?.data?.message || e.message });
+          loadData(); // Reload vì có thể đơn đã bị người khác lấy
+      }
+  };
+
   useEffect(() => { loadData(); }, []);
   useEffect(() => { setPage(1); }, [activeTab]);
+
+
 
   const replyTask = async (id, action) => {
     try {
@@ -74,9 +93,76 @@ export default function ShipperTab() {
       return [...doneDel, ...fmtRMA].sort((a,b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   }, [deliveryTasks, rmaTasks]);
 
-    const currentList = activeTab === 'delivery' ? deliveryList 
-                    : activeTab === 'rma' ? rmaList 
-                    : historyList;
+    const poolList = useMemo(() => {
+      // Map đơn delivery
+      const dels = pool.delivery.map(d => ({ 
+          ...d, 
+          isPool: true, 
+          type: 'delivery',
+          // 🔥 Ưu tiên lấy createdAt nếu không có updatedAt (để tránh Invalid Date)
+          timeDisplay: d.createdAt || d.updatedAt 
+      }));
+      
+      // Map đơn RMA
+      const rmas = pool.rma.map(r => ({ 
+          ...r, 
+          isPool: true, 
+          type: 'rma', 
+          isRMA: true,
+          timeDisplay: r.createdAt || r.updatedAt
+      }));
+
+      // Gộp và SẮP XẾP: Mới nhất lên đầu (descending)
+      return [...dels, ...rmas].sort((a, b) => new Date(b.timeDisplay) - new Date(a.timeDisplay));
+    }, [pool]);
+
+    const baseList = activeTab === 'pool' ? poolList
+            : activeTab === 'delivery' ? deliveryList 
+            : activeTab === 'rma' ? rmaList 
+            : historyList;
+
+    // LOGIC TÌM KIẾM
+    const currentList = useMemo(() => {
+        if (!searchTerm.trim()) return baseList;
+        
+        // Chuẩn hóa từ khóa người dùng nhập (bỏ dấu, chữ thường)
+        const term = normalizeStr(searchTerm);
+        
+        return baseList.filter(item => {
+            // 1. Lấy dữ liệu thô từ đơn hàng
+            const code = item.code || item.orderId?.code || item._id;
+            
+            let name = '', phone = '', address = '';
+
+            // Logic lấy thông tin giống hệt hiển thị trên Card
+            if (item.isRMA || item.type === 'rma') {
+                const user = item.userId;
+                const orderShip = item.orderId?.shippingAddress;
+                const pickup = item.pickupAddress;
+
+                name = user?.name || orderShip?.receiver || '';
+                phone = user?.phone || orderShip?.phone || '';
+                
+                // Gộp tất cả thông tin địa chỉ lại để tìm
+                const addrObj = pickup || orderShip;
+                if (addrObj) address = `${addrObj.detail} ${addrObj.ward} ${addrObj.district} ${addrObj.province}`;
+                else if (user?.address) address = user.address;
+
+            } else {
+                const sa = item.shippingAddress;
+                name = sa?.receiver || '';
+                phone = sa?.phone || '';
+                if (sa) address = `${sa.detail} ${sa.ward} ${sa.district} ${sa.province}`;
+            }
+
+            // 2. So sánh chuỗi đã chuẩn hóa
+            // Cho phép tìm theo: Mã đơn, Tên, SĐT, hoặc Địa chỉ (Quận, Phường...)
+            return normalizeStr(code).includes(term) || 
+                   normalizeStr(name).includes(term) || 
+                   normalizeStr(phone).includes(term) ||
+                   normalizeStr(address).includes(term); 
+        });
+    }, [baseList, searchTerm]);
   
     const totalPages = Math.ceil(currentList.length / ITEMS_PER_PAGE);
     const paginatedList = currentList.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
@@ -115,8 +201,8 @@ export default function ShipperTab() {
   
 
   const Card = ({ item, isRMA }) => {
-      // LOGIC THÔNG MINH ĐỂ LẤY ĐỊA CHỈ & THÔNG TIN
-      let name, phone, address;
+    const isPool = item.isPool;
+    let name, phone, address;
       
       if (isRMA) {
           // RMA: Ưu tiên lấy từ pickupAddress lưu trong RMA
@@ -146,6 +232,13 @@ export default function ShipperTab() {
     const isCod = !isRMA && item.payment?.method === 'cod' && item.payment?.status === 'unpaid';
     const total = isCod ? (item.total?.grand || 0) : 0;
     const code = isRMA ? item.orderId?.code : (item.code || item._id);
+    const province = isRMA
+        ? item.pickupAddress?.province || item.orderId?.shippingAddress?.province
+        : item.shippingAddress?.province;
+      
+      const district = isRMA 
+        ? item.pickupAddress?.district || item.orderId?.shippingAddress?.district 
+        : item.shippingAddress?.district;
 
 
       return (
@@ -163,7 +256,7 @@ export default function ShipperTab() {
                           <span className="font-black text-gray-800 text-lg tracking-tight">#{String(code).slice(-6)}</span>
                       </div>
                       <div className="text-xs text-gray-400 mt-1 flex items-center gap-1 font-medium">
-                          <Calendar size={12}/> {new Date(item.updatedAt).toLocaleString('vi-VN')}
+                          <Calendar size={12}/> {new Date(item.timeDisplay || item.createdAt || item.updatedAt).toLocaleString('vi-VN')}
                       </div>
                   </div>
                   <div className="flex flex-col items-end">
@@ -171,6 +264,23 @@ export default function ShipperTab() {
                           {isCod ? new Intl.NumberFormat('vi-VN').format(total) + 'đ' : '0đ'}
                       </span>
                       <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wide">{isCod ? 'THU HỘ' : 'ĐÃ TT'}</span>
+                  </div>
+              </div>
+
+                {item.isUrgent && item.isPool && (
+                    <div className="mx-3 mb-3 bg-red-100 border border-red-200 p-2 rounded-lg flex items-center justify-center gap-2 animate-pulse">
+                        <AlertCircle size={16} className="text-red-600"/>
+                        <span className="text-xs font-black text-red-700 uppercase">Đơn gấp - Cần giao ngay!</span>
+                    </div>
+                )}
+
+              <div className="bg-blue-50 border border-blue-100 p-3 rounded-xl mb-3 flex items-center gap-3">
+                  <div className="p-2 bg-white rounded-full text-blue-600 shadow-sm"><MapPin size={20}/></div>
+                  <div>
+                      <p className="text-xs text-blue-500 font-bold uppercase">Khu vực giao:</p>
+                      <p className="text-base font-black text-blue-900 leading-tight">
+                          {district}, {province}
+                      </p>
                   </div>
               </div>
 
@@ -226,6 +336,19 @@ export default function ShipperTab() {
 
               {/* Actions */}
               <div className="mt-4 pl-3 grid grid-cols-2 gap-2">
+                    {isPool && (
+                        <button 
+                            onClick={() => handleClaim(item._id, item.type || (isRMA ? 'rma' : 'delivery'))}
+                            className={`col-span-2 py-3 text-white font-bold rounded-xl shadow-lg hover:shadow-xl active:scale-95 transition flex items-center justify-center gap-2 ${
+                                isRMA 
+                                ? 'bg-gradient-to-r from-orange-500 to-red-500 shadow-orange-200' // Màu Cam cho Thu hồi
+                                : 'bg-gradient-to-r from-indigo-600 to-violet-600 shadow-indigo-200' // Màu Xanh cho Giao hàng
+                            }`}
+                        >
+                            {isRMA ? <RotateCcw size={18}/> : <ShoppingBag size={18}/>} 
+                            {isRMA ? 'NHẬN ĐƠN HOÀN TRẢ' : 'NHẬN ĐƠN GIAO HÀNG'}
+                        </button>
+                    )}
                     {!isRMA && item.status === 'assigned' && (
                         <>
                             <Btn onClick={() => replyTask(item._id, 'accept')} text="Nhận đơn" color="indigo" icon={Check}/>
@@ -269,67 +392,125 @@ export default function ShipperTab() {
       );
   };
 
-  return (
+    return (
     <div className="flex flex-col h-screen bg-gray-50 font-sans overflow-hidden">
-      <div className="bg-white px-4 py-3 border-b flex justify-between items-center z-10 shadow-sm shrink-0">
-          <div className="font-bold text-gray-800 flex items-center gap-2 text-lg"><Truck className="text-indigo-600"/> Shipper Hub</div>
-          <button onClick={loadData} className={`p-2 bg-gray-100 rounded-full hover:bg-gray-200 ${loading?'animate-spin':''}`}><RefreshCw size={20}/></button>
-      </div>
       
-      <div className="p-2 bg-white border-b flex gap-2 shrink-0">
-          {[
-              { id: 'delivery', label: 'Giao hàng', count: deliveryList.length }, 
-              { id: 'rma', label: 'Thu hồi', count: rmaList.length },
-              { id: 'history', label: 'Lịch sử', count: historyList.length } // ✅ Đã có count cho lịch sử
-          ].map(t => (
-              <button key={t.id} onClick={() => setActiveTab(t.id)} 
-                  className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
-                      activeTab === t.id 
-                      ? 'bg-indigo-50 text-indigo-700 border border-indigo-100' 
-                      : 'text-gray-500 hover:bg-gray-50'
+      {/* --- KHỐI HEADER CỐ ĐỊNH (Gồm Title + Search + Tabs) --- */}
+      <div className="bg-white shadow-sm z-20 shrink-0">
+          
+          {/* 1. Header Title */}
+          <div className="px-4 pt-3 pb-2 flex justify-between items-center">
+              <div className="font-extrabold text-gray-800 flex items-center gap-2 text-xl tracking-tight">
+                  <div className="p-2 bg-indigo-600 text-white rounded-xl shadow-indigo-200 shadow-md">
+                      <Truck size={20} strokeWidth={2.5}/>
+                  </div>
+                  Shipper Hub
+              </div>
+              <button onClick={loadData} className={`p-2.5 bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 hover:text-indigo-600 transition active:scale-95 ${loading?'animate-spin':''}`}>
+                  <RefreshCw size={18}/>
+              </button>
+          </div>
+
+          {/* 2. Thanh Tìm Kiếm (Đẹp & Hiện đại) */}
+          <div className="px-4 py-2">
+              <div className="relative group">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-600 transition-colors">
+                      <Search size={18}/>
+                  </div>
+                  <input 
+                      className="w-full pl-10 pr-9 py-2.5 bg-gray-100 border-transparent border-2 rounded-xl text-sm font-medium text-gray-700 placeholder-gray-400 outline-none focus:bg-white focus:border-indigo-600 focus:shadow-sm transition-all"
+                      placeholder="Tìm mã đơn, tên khách, SĐT..."
+                      value={searchTerm}
+                      onChange={e => setSearchTerm(e.target.value)}
+                  />
+                  {searchTerm && (
+                      <button 
+                          onClick={() => setSearchTerm('')} 
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 bg-gray-200 rounded-full hover:bg-gray-300 transition"
+                      >
+                          <X size={12}/>
+                      </button>
+                  )}
+              </div>
+          </div>
+
+          {/* 3. Tabs Navigation (Dạng trượt ngang) */}
+          <div className="px-2 flex gap-1 overflow-x-auto no-scrollbar pb-0 mt-1 border-b border-gray-100">
+            <button onClick={() => setActiveTab('pool')} 
+                  className={`flex-1 min-w-[100px] py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
+                      activeTab==='pool' ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
               >
-                  {t.label} <span className="text-xs opacity-70 ml-1">({t.count})</span>
-              </button>
-          ))}
+                  Săn đơn <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[10px] ${activeTab==='pool' ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600'}`}>{poolList.length}</span>
+            </button>
+              {[
+                  { id: 'delivery', label: 'Giao hàng', count: deliveryList.length }, 
+                  { id: 'rma', label: 'Thu hồi', count: rmaList.length },
+                  { id: 'history', label: 'Lịch sử', count: historyList.length }
+              ].map(t => (
+                  <button key={t.id} onClick={() => setActiveTab(t.id)} 
+                      className={`flex-1 min-w-[90px] py-3 text-sm font-bold border-b-2 transition-all whitespace-nowrap ${
+                          activeTab === t.id 
+                          ? 'border-indigo-600 text-indigo-700' 
+                          : 'border-transparent text-gray-500 hover:text-gray-700'
+                      }`}
+                  >
+                      {t.label} <span className="text-xs opacity-70 ml-0.5">({t.count})</span>
+                  </button>
+              ))}
+          </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+      {/* --- DANH SÁCH CUỘN --- */}
+      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-gray-50/50">
         {paginatedList.length > 0 ? (
             paginatedList.map(item => (
                 <Card 
                     key={item._id} 
                     item={item} 
-                    isRMA={activeTab === 'rma' || (activeTab === 'history' && item.isRMA)} 
+                    isRMA={item.isRMA || activeTab === 'rma'} 
                 />
             ))
         ) : (
-            <Empty text="Không có đơn hàng nào."/>
+            <div className="h-full flex flex-col items-center justify-center text-gray-400 pb-20 animate-in fade-in zoom-in-95 duration-300">
+                <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mb-4 shadow-sm">
+                    <Search size={40} className="text-gray-300"/>
+                </div>
+                <p className="font-bold text-gray-500">Không tìm thấy đơn hàng</p>
+                <p className="text-xs text-gray-400 mt-1">Thử tìm bằng từ khóa khác xem sao</p>
+                {searchTerm && (
+                    <button onClick={()=>setSearchTerm('')} className="mt-4 px-4 py-2 bg-indigo-50 text-indigo-600 text-sm font-bold rounded-lg hover:bg-indigo-100 transition">
+                        Xóa bộ lọc
+                    </button>
+                )}
+            </div>
         )}
       </div>
 
-        {totalPages > 1 && (
-            <div className="p-3 bg-white border-t shrink-0 flex justify-center gap-4 items-center z-10">
+      {/* --- PHÂN TRANG --- */}
+      {totalPages > 1 && (
+            <div className="p-3 bg-white border-t shrink-0 flex justify-center gap-4 items-center z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                 <button 
                     disabled={page === 1} 
                     onClick={() => setPage(p => p - 1)} 
-                    className="p-2 rounded-lg border bg-gray-50 hover:bg-gray-100 disabled:opacity-30 transition"
+                    className="p-2.5 rounded-xl border bg-gray-50 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:cursor-not-allowed transition"
                 >
                     <ChevronLeft size={20}/>
                 </button>
-                <span className="text-sm font-bold text-gray-600">
+                <span className="text-sm font-bold text-gray-700 bg-gray-100 px-4 py-2 rounded-lg">
                     Trang {page} / {totalPages}
                 </span>
                 <button 
                     disabled={page === totalPages} 
                     onClick={() => setPage(p => p + 1)} 
-                    className="p-2 rounded-lg border bg-gray-50 hover:bg-gray-100 disabled:opacity-30 transition"
+                    className="p-2.5 rounded-xl border bg-gray-50 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 disabled:opacity-30 disabled:cursor-not-allowed transition"
                 >
                     <ChevronRight size={20}/>
                 </button>
             </div>
         )}
 
+      {/* Modal Confirm (Giữ nguyên phần này) */}
       {modal && (
          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm" onClick={()=>setModal(null)}>
             <div className="bg-white w-full sm:max-w-sm rounded-t-3xl sm:rounded-2xl p-6 animate-in slide-in-from-bottom-10" onClick={e=>e.stopPropagation()}>
