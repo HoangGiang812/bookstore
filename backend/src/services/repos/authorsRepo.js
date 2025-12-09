@@ -89,73 +89,75 @@ export async function decAuthorBookCountByName(name, delta = 1) {
 /** ===== End helpers ===== */
 
 export async function listAuthors({ limit = 50, start = 0, q = '', sort }) {
-  const take = Math.min(500, Number(limit) + 50); // Lấy dư một chút
+  const take = Math.min(500, Number(limit) + 50);
   const skip = Number(start) || 0;
 
-  // Điều kiện lọc
+  // 1. Điều kiện lọc (Giữ nguyên logic cũ)
   const matchStage = q
     ? {
         $or: [
           { name: { $regex: q, $options: 'i' } },
           { fullName: { $regex: q, $options: 'i' } },
           { displayName: { $regex: q, $options: 'i' } },
+          { slug: { $regex: q, $options: 'i' } } // Thêm tìm theo slug cho chắc
         ],
       }
     : {};
 
-  // Pipeline Aggregation để đếm sách
+  // 2. 🔥 ĐẾM TỔNG SỐ LƯỢNG (QUAN TRỌNG ĐỂ PHÂN TRANG)
+  // Dùng Collation để đếm chính xác cả tiếng Việt không dấu
+  const total = await Author.countDocuments(matchStage)
+    .collation({ locale: 'vi', strength: 1 });
+
+  // 3. Pipeline lấy dữ liệu (Giữ nguyên logic đếm sách)
   const pipeline = [
     { $match: matchStage },
-    
-    // 1. Lookup sang bảng Books để đếm số lượng
     {
       $lookup: {
-        from: 'books', // Tên collection trong DB (thường là 'books')
+        from: 'books',
         let: { authorId: '$_id', authorName: '$name' },
         pipeline: [
           { 
             $match: { 
               $expr: { 
                 $or: [
-                  // Match theo ID (nếu book lưu authorIds là ObjectId)
                   { $in: ['$$authorId', { $ifNull: ['$authorIds', []] }] }, 
-                  // Match theo tên (fallback cho dữ liệu cũ)
                   { $eq: ['$author', '$$authorName'] } 
                 ]
               } 
             } 
           },
-          // Chỉ cần đếm, không cần lấy dữ liệu
           { $count: "count" }
         ],
         as: 'bookCountData'
       }
     },
-    
-    // 2. Gán giá trị đếm được vào field bookCount
     {
       $addFields: {
         bookCount: { $ifNull: [{ $arrayElemAt: ["$bookCountData.count", 0] }, 0] }
       }
     },
-    
-    // 3. Bỏ trường tạm đi cho nhẹ
     { $project: { bookCountData: 0 } }
   ];
 
-  // Xử lý sắp xếp
+  // Xử lý sắp xếp & Phân trang
   if (sort === 'random') {
       pipeline.push({ $sample: { size: Number(limit) } });
   } else {
       pipeline.push({ $sort: { name: 1 } });
       pipeline.push({ $skip: skip });
-      pipeline.push({ $limit: take });
+      pipeline.push({ $limit: Number(limit) }); // Lưu ý: dùng đúng limit FE gửi lên
   }
 
-  const rows = await Author.aggregate(pipeline);
+  // 4. 🔥 THỰC THI VỚI COLLATION (QUAN TRỌNG ĐỂ TÌM KIẾM)
+  const rows = await Author.aggregate(pipeline)
+    .collation({ locale: 'vi', strength: 1 });
 
-  // Map lại kết quả qua hàm mapAuthor để chuẩn hóa avatar...
-  return rows.slice(0, limit).map(mapAuthor);
+  // 5. Trả về cả items và total
+  return {
+    items: rows.map(mapAuthor),
+    total: total
+  };
 }
 
 export async function getAuthorById(id) {

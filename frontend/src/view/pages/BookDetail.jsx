@@ -10,6 +10,17 @@ import { useWishlist } from "../../store/useWishlist";
 import { getImageUrl } from "../../services/api";
 
 /* --------- Helpers --------- */
+const slugify = (str) => {
+  if (!str) return '';
+  return String(str)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-');
+};
+
 const toVND = (n) =>
   new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(Number(n || 0));
 
@@ -65,10 +76,17 @@ export default function BookDetail() {
             authors = b.authors.map(a => ({
                 id: a._id || a.id,
                 name: a.name || a.fullName,
-                slug: a.slug
+                // 🔥 SỬA: Nếu backend không trả slug, tự tạo slug từ tên
+                slug: a.slug || slugify(a.name || a.fullName) 
             }));
         } else if (b.author) {
-            authors = [{ name: b.author, id: null, slug: null }];
+            // Trường hợp sách cũ chỉ lưu tên string
+            authors = [{ 
+                name: b.author, 
+                id: null, 
+                // 🔥 SỬA: Tự tạo slug từ chuỗi tên
+                slug: slugify(b.author) 
+            }];
         }
 
         // 3. Xử lý ảnh

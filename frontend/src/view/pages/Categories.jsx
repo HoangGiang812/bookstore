@@ -9,6 +9,14 @@ import { useAuth } from "../../store/useAuth";
 import * as CartSvc from "../../services/cart";
 import { useUI } from "../../store/useUI";
 
+const removeAccents = (str) => {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+    .toLowerCase();
+};
+
 /* ===== Helpers Utility ===== */
 // 1. Hàm đệ quy dựng cây danh mục từ danh sách phẳng
 function buildCategoryTree(items) {
@@ -223,13 +231,13 @@ export default function Categories() {
     (async () => {
       setLoading(true); setErr("");
       try {
-        const deepFlag = true; // Luôn tìm sâu (bao gồm danh mục con)
+        const deepFlag = true; 
         const p = {
-          q: search || undefined,
+          // q: search || undefined, // ❌ BỎ DÒNG NÀY (Không gửi search lên server nữa)
           sort,
           categorySlug: catSlug !== "all" ? catSlug : undefined,
           deep: deepFlag ? 1 : undefined,
-          limit: 300, // Lấy nhiều để filter client cho mượt (demo)
+          limit: 300, 
         };
         
         const { items } = await fetchBooksWithFallback(p);
@@ -237,7 +245,6 @@ export default function Categories() {
         
         const mapped = items.map(mapBook);
         
-        // Lấy list tác giả từ kết quả hiện tại
         const aSet = new Set(mapped.map((b) => b.author).filter(Boolean));
         setAuthors(["all", ...Array.from(aSet).sort()]);
         
@@ -250,23 +257,37 @@ export default function Categories() {
       }
     })();
     return () => { cancelled = true; };
-  }, [search, sort, catSlug]);
+  }, [sort, catSlug]);
 
   // 5. Filter Client-side (cho mượt)
   const filtered = useMemo(() => {
     let f = [...books];
+
+    // --- A. Lọc theo Search (Tiếng Việt không dấu) ---
+    if (search.trim()) {
+        const keyword = removeAccents(search.trim());
+        f = f.filter(b => {
+            const title = removeAccents(b.title);
+            const authorName = removeAccents(b.author);
+            return title.includes(keyword) || authorName.includes(keyword);
+        });
+    }
+
+    // --- B. Lọc theo Tác giả ---
     if (author !== "all") f = f.filter((b) => b.author === author);
+    
+    // --- C. Lọc theo Đánh giá ---
     if (rating > 0) f = f.filter((b) => Math.floor(b.rating || 0) >= rating);
     
-    // Sort client bổ sung (nếu BE sort chưa chuẩn)
+    // --- D. Sắp xếp (Sort) ---
     switch (sort) {
       case "price-asc": f.sort((a, b) => a.price - b.price); break;
       case "price-desc": f.sort((a, b) => b.price - a.price); break;
       case "bestseller": f.sort((a, b) => (b.reviewCount || 0) - (a.reviewCount || 0)); break;
-      default: break; // BE đã sort newest
+      default: break; // Mặc định BE đã sort newest
     }
     return f;
-  }, [books, author, rating, sort]);
+  }, [books, author, rating, sort, search]);
 
   // Pagination
   const pageCount = Math.max(1, Math.ceil(filtered.length / PER_PAGE));

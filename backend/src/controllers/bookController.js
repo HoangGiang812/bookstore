@@ -196,6 +196,7 @@ export async function suggestBooks(req, res) {
   const books = await Book.find({
     $or: [
       { title: rx },
+      { slug: rxSlug },
       { author: rx },
       { authors: rx },
       { authorSlug: rxSlug },

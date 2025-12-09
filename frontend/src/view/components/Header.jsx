@@ -21,6 +21,14 @@ import { useWishlist } from "../../store/useWishlist";
 import CategoryMegaMenu from "../components/CategoryMenu";
 import { getImageUrl } from "../../services/api";
 
+const removeAccents = (str) => {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd').replace(/Đ/g, 'D')
+    .toLowerCase();
+};
+
 /* ================== utils ================== */
 const escapeReg = (s) => String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -124,48 +132,53 @@ export default function Header() {
   }, [user?.id]);
 
   useEffect(() => {
-    function onFly(e) {
+    function onFlyWishlist(e) {
       try {
-        const { book, fromEl } = e.detail || {};
-        const target = document.querySelector("[data-cart-target]");
+        const { image, fromEl } = e.detail || {};
+        // Tìm icon trái tim trên header
+        const target = document.querySelector("[data-wishlist-target]"); 
         if (!fromEl || !target) return;
-        const s = fromEl.getBoundingClientRect(),
-          t = target.getBoundingClientRect();
-        const startX = s.left + s.width / 2,
-          startY = s.top + s.height / 2;
-        const endX = t.left + t.width / 2,
-          endY = t.top + t.height / 2;
+
+        const s = fromEl.getBoundingClientRect();
+        const t = target.getBoundingClientRect();
+
+        const startX = s.left + s.width / 2;
+        const startY = s.top + s.height / 2;
+        const endX = t.left + t.width / 2;
+        const endY = t.top + t.height / 2;
+
         const id = Date.now() + Math.random();
+        
+        // Tạo vật thể bay
         setFlyItems((list) => [
           ...list,
           {
             id,
-            image: book?.image || book?.coverUrl || "/placeholder.jpg",
+            image: image || "/placeholder.png",
             style: {
               "--sx": `${startX}px`,
               "--sy": `${startY}px`,
               "--dx": `${endX - startX}px`,
               "--dy": `${endY - startY}px`,
               "--dxh": `${(endX - startX) * 0.5}px`,
-              "--dyh": `${(endY - startY) * 0.5 - 100}px`,
+              "--dyh": `${(endY - startY) * 0.5 - 100}px`, // Bay vòng cung
             },
           },
         ]);
-        target.classList.add("cart-shake");
+
+        // Rung icon trái tim
+        target.classList.add("cart-shake"); // Tận dụng class rung cũ
         setTimeout(() => target.classList.remove("cart-shake"), 600);
+
+        // Dọn dẹp sau khi bay xong
         setTimeout(() => {
           setFlyItems((list) => list.filter((x) => x.id !== id));
-          const tid = Date.now() + Math.random();
-          setToasts((t) => [
-            ...t,
-            { id: tid, title: "Đã thêm vào giỏ hàng!", name: book?.title },
-          ]);
-          setTimeout(() => setToasts((t) => t.filter((x) => x.id !== tid)), 3000);
         }, 800);
       } catch {}
     }
-    window.addEventListener("ui:flyToCart", onFly);
-    return () => window.removeEventListener("ui:flyToCart", onFly);
+
+    window.addEventListener("ui:flyToWishlist", onFlyWishlist);
+    return () => window.removeEventListener("ui:flyToWishlist", onFlyWishlist);
   }, []);
 
   /* ====== Gợi ý: fetch theo chữ gõ + filter partial + trộn tác giả & sách ====== */
@@ -179,16 +192,11 @@ export default function Header() {
       }
 
       try {
-        const server = await searchSuggestions(kw); // [{type:'author'|'book', id, label}]
-        const rx = new RegExp(escapeReg(kw), "i");
-
-        // lọc theo partial
-        const filtered = (server || []).filter((it) => rx.test(it?.label || ""));
-
-        // loại trùng
+        const server = await searchSuggestions(kw); 
+        
         const seen = new Set();
         const unique = [];
-        for (const it of filtered) {
+        for (const it of (server || [])) {
           const key = `${it.type}:${it.id || it.label}`;
           if (!seen.has(key)) {
             seen.add(key);
@@ -196,11 +204,11 @@ export default function Header() {
           }
         }
 
-        // tách 2 nhóm
+        // Tách 2 nhóm để trộn
         const authors = unique.filter((x) => x.type === "author");
         const books = unique.filter((x) => x.type === "book");
 
-        // TRỘN XEN KẼ để luôn có sách nếu có dữ liệu
+        // TRỘN XEN KẼ (1 Tác giả - 1 Sách)
         const maxLen = Math.max(authors.length, books.length);
         const merged = [];
         for (let i = 0; i < maxLen; i++) {
@@ -212,7 +220,7 @@ export default function Header() {
       } catch {
         setSugs([]);
       }
-    }, 200);
+    }, 200); // Debounce
     return () => clearTimeout(t);
   }, [q]);
 
@@ -225,16 +233,27 @@ export default function Header() {
 
   // tô đậm màu tím/ xanh tím cho phần khớp
   const highlight = (label) => {
-    if (!q) return label;
-    const parts = String(label).split(new RegExp(`(${escapeReg(q)})`, "ig"));
-    return parts.map((p, i) =>
-      p.toLowerCase() === q.toLowerCase() ? (
-        <span key={i} className="text-violet-600 font-semibold">
-          {p}
+    if (!q || !label) return label;
+    
+    const labelNorm = removeAccents(label);
+    const qNorm = removeAccents(q);
+    const index = labelNorm.indexOf(qNorm);
+
+    if (index === -1) return label;
+
+    // Cắt chuỗi gốc dựa trên index tìm được ở chuỗi không dấu
+    const before = label.slice(0, index);
+    const match = label.slice(index, index + qNorm.length);
+    const after = label.slice(index + qNorm.length);
+
+    return (
+      <>
+        {before}
+        <span className="text-violet-600 font-bold bg-violet-50 rounded-sm px-0.5">
+          {match}
         </span>
-      ) : (
-        <span key={i}>{p}</span>
-      )
+        {after}
+      </>
     );
   };
 
@@ -301,7 +320,7 @@ export default function Header() {
             <input
               ref={inputRef}
               className="input pr-10"
-              placeholder="Tìm kiếm sách, tác giả, NXB..."
+              placeholder="Tìm kiếm sách, tác giả,..."
               value={q}
               autoComplete="off"
               onChange={(e) => {
@@ -379,7 +398,7 @@ export default function Header() {
         </form>
 
         <nav className="flex items-center gap-3">
-          <Link to="/wishlist" className="relative p-2 hover:bg-gray-100 rounded-lg"> {/* */}
+          <Link to="/wishlist" data-wishlist-target className="relative p-2 hover:bg-gray-100 rounded-lg"> {/* */}
             <Heart className="w-6 h-6" /> {/* */}
             {/* THÊM BADGE COUNT */}
             {wishlistCount > 0 && (

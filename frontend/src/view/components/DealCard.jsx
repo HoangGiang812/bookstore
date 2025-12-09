@@ -5,6 +5,7 @@ import { useAuth } from "../../store/useAuth";
 import { useWishlist } from "../../store/useWishlist";
 import { getImageUrl } from '../../services/api';
 
+// --- CÁC HÀM HELPER GIỮ NGUYÊN ---
 function rippleAt(el, e) {
   try {
     const rect = el.getBoundingClientRect();
@@ -44,11 +45,10 @@ function flyToCart(fromEl, imageSrc) {
 /* ---------------------------------------------------- */
 
 export default function DealCard({ book = {}, onAdd, onBuy }) {
-  const { user } = useAuth();
-  const { wishlist, toggleWishlist } = useWishlist();
-  const nav = useNavigate();
-  const location = useLocation();
+  // 1. Dùng toggleWishlist thay vì addToWishlist
+  const { wishlist, toggleWishlist } = useWishlist(); 
   const id = book.id || book._id;
+  
   const liked = useMemo(() => {
     return wishlist.some(item => (item._id || item.id) === id);
   }, [wishlist, id]);
@@ -59,22 +59,32 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
   const price = hasDiscount 
     ? Math.round(originalPrice * (1 - discountPercent / 100))
     : originalPrice;
-  const discount = discountPercent;
+  
   const slug = book.slug;
   const bookUrl = slug ? `/books/${slug}` : id ? `/books/${id}` : "#";
 
+  // --- 2. LOGIC TIM ĐÃ SỬA ---
   const toggleLike = (e) => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (user) {
-      toggleWishlist(book);
-    } else {
-      nav('/login', { state: { from: location.pathname } }); 
+    // Gọi store
+    toggleWishlist(book);
+
+    // Nếu chưa thích -> Bắn pháo hoa (hiệu ứng bay)
+    if (!liked) {
+        const imgEl = e.currentTarget.closest('.group')?.querySelector('img');
+        const imgSrc = getImageUrl(book.image || book.cover || book.coverUrl);
+        
+        window.dispatchEvent(new CustomEvent("ui:flyToWishlist", {
+            detail: { 
+                image: imgSrc,
+                fromEl: imgEl || e.currentTarget 
+            }
+        }));
     }
   };
 
-  // ✅ Thêm giỏ: không yêu cầu đăng nhập
   const handleAddToCart = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -85,11 +95,9 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
     if (typeof onAdd === "function") {
       onAdd(book);
     } else {
-      // fallback: phát event cho app bắt
       window.dispatchEvent(new CustomEvent("add-to-cart", { detail: book }));
     }
 
-    // bump Header badge ngay
     try {
       localStorage.setItem("__cart_bump__", String(Date.now()));
       window.dispatchEvent(new Event("storage"));
@@ -97,37 +105,40 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
     } catch {}
   };
 
-  // ✅ Mua ngay: để parent xử lý đăng nhập + setBuyNow
   const handleBuyNow = (e) => {
     e.preventDefault();
     e.stopPropagation();
-
     rippleAt(e.currentTarget, e);
-
     if (typeof onBuy === "function") {
       onBuy(book);
     } else {
-      // fallback: phát event nếu bạn muốn lắng nghe ở cấp app
       window.dispatchEvent(new CustomEvent("buy-now", { detail: book }));
     }
   };
 
   return (
     <div className="group">
-      <Link
-        to={bookUrl}
-        className="relative block w-full h-[360px] md:h-[420px] rounded-2xl overflow-hidden border bg-white hover:shadow-md transition grid place-items-center"
-      >
+      {/* 3. CẤU TRÚC HTML ĐÃ SỬA:
+          - Đổi thẻ <Link> bao ngoài thành <div>
+          - Chèn <Link> tuyệt đối (absolute) bên trong để vẫn click được vào ảnh
+          - Nút tim có z-index cao hơn Link
+      */}
+      <div className="relative block w-full h-[360px] md:h-[420px] rounded-2xl overflow-hidden border bg-white hover:shadow-md transition grid place-items-center">
+        
+        {/* Link chìm bao phủ toàn bộ ảnh */}
+        <Link to={bookUrl} className="absolute inset-0 z-0" />
+
         {hasDiscount && (
-          <span className="absolute left-3 top-3 z-10 rounded-full bg-[var(--color-danger)] px-2.5 py-1 text-xs font-semibold text-white">
-            -{discount}%
+          <span className="absolute left-3 top-3 z-10 rounded-full bg-[var(--color-danger)] px-2.5 py-1 text-xs font-semibold text-white pointer-events-none">
+            -{discountPercent}%
           </span>
         )}
 
+        {/* Nút tim (z-index 20 -> Click được) */}
         <button
           onClick={toggleLike}
           aria-label="Yêu thích"
-          className={`absolute right-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-white/90 border shadow ${
+          className={`absolute right-3 top-3 z-20 grid h-9 w-9 place-items-center rounded-full bg-white/90 border shadow ${
             liked ? "text-[var(--color-danger)]" : "text-gray-700"
           }`}
         >
@@ -139,13 +150,14 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
         <img
           src={getImageUrl(book.image || book.cover || book.coverUrl)}
           alt={book.title || "Book cover"}
-          className="w-[175px] h-[244px] object-contain duration-300 group-hover:scale-[1.01]"
+          className="w-[175px] h-[244px] object-contain duration-300 group-hover:scale-[1.01] pointer-events-none relative z-0"
           onError={(e) => {
-            e.currentTarget.src = getImageUrl(null); // Dùng placeholder toàn cục
+            e.target.onerror = null; 
+            e.target.src = "https://placehold.co/400x600?text=No+Image";
           }}
         />
 
-        {/* Hàng nút */}
+        {/* Hàng nút Hover (z-index 20 -> Click được) */}
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100 translate-y-2 group-hover:translate-y-0 transition">
           <button
             onClick={handleAddToCart}
@@ -174,7 +186,7 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
             style={{ background: "linear-gradient(to right, var(--brand), var(--brand-light), #B5FCCD)" }}
           />
         </div>
-      </Link>
+      </div>
 
       <div className="mt-3">
         <Link to={bookUrl} className="block text-base font-semibold leading-snug hover:underline" title={book.title}>
@@ -193,7 +205,7 @@ export default function DealCard({ book = {}, onAdd, onBuy }) {
         </div>
       </div>
 
-      {/* FX CSS (có thể đưa vào globals.css) */}
+      {/* --- CSS STYLE GIỮ NGUYÊN --- */}
       <style>{`
         .fx-btn { position: relative; overflow: hidden; transform: translateZ(0); }
         .fx-btn:active { transform: scale(.96); }
