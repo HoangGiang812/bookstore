@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import axios from 'axios';
 import { Order } from '../../models/Order.js';
+import { Transaction } from '../../models/Transaction.js';
 
 // Lấy config từ .env
 const config = {
@@ -77,19 +78,36 @@ export const verifyMomoPayment = async (req, res) => {
             
             const order = await Order.findById(realOrderId);
             
-            // Cập nhật trạng thái đơn hàng thành ĐÃ THANH TOÁN
-            if (order && order.payment.status !== 'paid') {
-                order.payment.status = 'paid';
-                order.payment.method = 'momo';
-                order.payment.capturedAt = new Date();
-                
-                // Nếu đơn đang pending -> chuyển sang processing luôn
-                if (order.status === 'pending') {
-                    order.status = 'processing';
+            if (order) {
+                // 1. Cập nhật trạng thái đơn hàng (Code cũ)
+                if (order.payment.status !== 'paid') {
+                    order.payment.status = 'paid';
+                    order.payment.method = 'momo';
+                    order.payment.capturedAt = new Date();
+                    
+                    if (order.status === 'pending') {
+                        order.status = 'processing';
+                    }
+                    
+                    await order.save();
                 }
+
+                // 🔥 2. THÊM LOGIC MỚI: TẠO TRANSACTION (Để ghi nhận doanh thu)
+                const existingTrans = await Transaction.findOne({ orderId: order._id, type: 'charge' });
                 
-                await order.save();
+                if (!existingTrans) {
+                    await Transaction.create({
+                        orderId: order._id,
+                        userId: order.userId || order.customer, // Lấy ID người mua
+                        type: 'charge',          // 'charge' = Thu tiền
+                        amount: order.total.grand || order.total, // Số tiền thực nhận
+                        method: 'momo',          // Phương thức
+                        reason: `Thanh toán qua MoMo (Mã GD: ${req.body.transId})`,
+                        createdAt: new Date()
+                    });
+                }
             }
+            
             return res.json({ status: 'success', orderId: realOrderId });
         } else {
             return res.json({ status: 'failed', message: 'Thanh toán thất bại hoặc bị hủy' });

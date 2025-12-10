@@ -17,6 +17,7 @@ const STATUS_MAP = {
   pending: 'Chờ duyệt',
   confirmed: 'Đã xác nhận',
   processing: 'Đang đóng gói',
+  assigned: 'Đã gán Shipper',
   ready_to_pick: 'Chờ lấy hàng',
   shipping: 'Đang giao',
   delivered: 'Giao thành công',
