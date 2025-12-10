@@ -44,10 +44,12 @@ import AdminDashboard from './pages/admin/AdminDashboard'; //
 
 // Toast
 import Toast from './components/Toast'; //
+import PageTitle from './components/PageTitle';
 
 export default function App() {
   return (
     <>
+      <PageTitle />
       <ScrollToTop />
       <Routes>
         {/* Các route công khai */}

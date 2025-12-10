@@ -50,9 +50,6 @@ export default function AboutUsPage() {
         if (!alive) return;
         setPageData(data || null);
         
-        // Đã sửa: Xóa logic lấy title động, chỉ đặt cứng là BookStore
-        document.title = "BookStore"; 
-        
       } catch (e) {
         if (!alive) return;
         setErr(e?.message || "Không thể tải trang");

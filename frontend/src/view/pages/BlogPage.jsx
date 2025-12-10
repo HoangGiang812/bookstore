@@ -57,7 +57,6 @@ const BlogPage = ({/* ...props... */}) => {
   const currentPage = parseInt(searchParams.get('page') || '1', 10);
 
   useEffect(() => {
-    document.title = "BookStore";
     const loadPosts = async () => {
       try {
         const data = await fetchPosts();

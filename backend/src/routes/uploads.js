@@ -1,61 +1,52 @@
 import { Router } from "express";
 import multer from "multer";
-import path from "path";
-import fs from "fs";
-import { requireAuth, requireRoles } from "../middlewares/auth.js";
+import { v2 as cloudinary } from 'cloudinary';
+import fs from 'fs'; // Thư viện thao tác file có sẵn của Node.js
 
 const router = Router();
 
-// Thư mục lưu ảnh tĩnh (ví dụ: backend/uploads)
-const uploadDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-// Cấu hình multer
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadDir); // (Giữ nguyên)
-  },
-  filename: function (req, file, cb) {
-    // Tạo tên file duy nhất
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  },
+// 1. Cấu hình Cloudinary (Dùng mã của bạn)
+cloudinary.config({
+  cloud_name: 'drlekdxbk',
+  api_key: '321563961755697',
+  api_secret: 'baJ09TGYjrJ2SpZNCtd56puFPD8'
 });
 
-// 2. THÊM: Lọc file (chỉ cho phép ảnh)
-const fileFilter = (req, file, cb) => {
-  if (file.mimetype.startsWith('image')) {
-    cb(null, true);
-  } else {
-    cb(new Error('Chỉ chấp nhận file ảnh!'), false);
-  }
-};
+// 2. Cấu hình Multer (Lưu tạm vào thư mục 'uploads/' trên server trước khi đẩy lên cloud)
+// Bạn cần đảm bảo có thư mục 'uploads' ở root của backend (ngang hàng src)
+const upload = multer({ dest: 'uploads/' });
 
-const upload = multer({ 
-  storage: storage,
-  fileFilter: fileFilter, // Thêm bộ lọc
-  limits: { fileSize: 1024 * 1024 * 5 } // Giới hạn 5MB
-});
-
-// 3. SỬA: Đổi route từ '/avatar' thành '/'
-router.post(
-  "/", 
-  requireAuth,
-  requireRoles('admin', 'staff', 'shipper'),
-  upload.single("image"), 
-  (req, res) => {
+// 3. API Upload Trực Tiếp
+router.post("/", upload.single("image"), async (req, res) => {
+  try {
+    // A. Kiểm tra file
     if (!req.file) {
-      return res.status(400).json({ message: "No file uploaded" });
+      return res.status(400).json({ message: "Chưa chọn file nào!" });
     }
 
-    // 6. SỬA: Trả về { path: ... } để khớp với ImageUploader
-    const publicUrl = `/uploads/${req.file.filename}`;
-    res.status(201).json({ path: publicUrl });
-  },
-  // Thêm hàm xử lý lỗi (ví dụ file quá lớn, sai định dạng)
-  (error, req, res, next) => {
-    res.status(400).json({ message: error.message });
+    // B. Đẩy file lên Cloudinary
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: 'bookstore', // Thư mục trên cloud
+      use_filename: true
+    });
+
+    // C. Xóa file tạm trong thư mục uploads/ để không rác máy
+    fs.unlink(req.file.path, (err) => {
+        if (err) console.error("Lỗi xóa file tạm:", err);
+    });
+
+    // D. Trả về link ảnh online (secure_url là link https)
+    res.json({
+      path: result.secure_url, 
+      filename: result.public_id
+    });
+
+  } catch (error) {
+    console.error("Upload Failed:", error);
+    // Nếu lỗi cũng cố gắng xóa file tạm
+    if (req.file && req.file.path) fs.unlink(req.file.path, () => {});
+    res.status(500).json({ message: "Lỗi upload lên Cloud: " + error.message });
   }
-);
+});
 
 export default router;

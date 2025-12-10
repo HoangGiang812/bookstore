@@ -56,7 +56,7 @@ export default function ForgotPassword() {
       await api.post("/auth/reset", { email, otp, newPassword });
       setMsg("Đổi mật khẩu thành công! Bạn có thể đăng nhập lại.");
     } catch (e) {
-      setErr(e?.response?.data?.message || "Đổi mật khẩu thất bại");
+      setErr(e?.response?.data?.message || "Đổi mật khẩu thất bại vì sai OTP hoặc lỗi khác");
     } finally {
       setLoading(false);
     }

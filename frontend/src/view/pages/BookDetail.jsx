@@ -53,6 +53,17 @@ export default function BookDetail() {
   const [activeImage, setActiveImage] = useState(""); 
   const [ratingSum, setRatingSum] = useState({ avg: 0, cnt: 0 });
 
+  useEffect(() => {
+    if (book) {
+        document.title = `${book.title} | BookStore`;
+    }
+    
+    // Cleanup: Trả lại tiêu đề gốc khi thoát trang (nếu muốn)
+    return () => {
+        document.title = 'BookStore - Thế giới sách';
+    }
+  }, [book]);
+
   // ---- Fetch Data ----
   useEffect(() => {
     window.scrollTo(0, 0);
