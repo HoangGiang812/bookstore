@@ -4,54 +4,61 @@ import * as Auth from '../services/auth'
 import { load, save } from '../services/storage'
 import { clearAllAuth } from '../services/api';
 
-export const useAuth = create((set,get)=>({
-  user:   load('current_user', null),
+export const useAuth = create((set, get) => ({
+  user: load('current_user', null),
   tokens: load('tokens', null),
-  loading:false,
-  error:null,
+  loading: false,
+  error: null,
 
-  async login(payload){
-    set({loading:true,error:null})
-    try{
+  // 👇 1. THÊM HÀM NÀY ĐỂ CÁC TRANG KHÁC GỌI CẬP NHẬT
+  setUser: (userData) => {
+    set({ user: userData });
+    save('current_user', userData); // Lưu luôn vào LocalStorage để F5 không mất
+  },
+
+  async login(payload) {
+    set({ loading: true, error: null })
+    try {
       const res = await Auth.login(payload) // { user, tokens:{accessToken,refreshToken} }
-      set({user:res.user, tokens:res.tokens})
+      set({ user: res.user, tokens: res.tokens })
       save('current_user', res.user)
-      save('tokens',       res.tokens)
+      save('tokens', res.tokens)
       return res.user
-    }catch(e){
-      set({error:e.message}); throw e
-    }finally{ set({loading:false}) }
+    } catch (e) {
+      set({ error: e.message }); throw e
+    } finally { set({ loading: false }) }
   },
 
-  async register(payload){
-    set({loading:true,error:null})
-    try{ return await Auth.register(payload) }
-    catch(e){ set({error:e.message}); throw e }
-    finally{ set({loading:false}) }
+  async register(payload) {
+    set({ loading: true, error: null })
+    try { return await Auth.register(payload) }
+    catch (e) { set({ error: e.message }); throw e }
+    finally { set({ loading: false }) }
   },
 
-  async refreshProfile(){
-    try{
+  async refreshProfile() {
+    try {
       const u = await Auth.me()
-      set({user:u}); save('current_user', u)
+      set({ user: u }); 
+      save('current_user', u)
       return u
     } catch { /* ignore */ }
   },
 
-  async verify(email){ return Auth.verifyEmail(email) },
+  async verify(email) { return Auth.verifyEmail(email) },
 
-  async logoutAll(){
-    const u=get().user; 
-    
-    if(u) {
-        try {
-            await Auth.logoutAll(u.id || u._id)
-        } catch (e) {
-            console.error("Lỗi khi gọi API logoutAll:", e);
-        }
+  async logoutAll() {
+    const u = get().user;
+
+    if (u) {
+      try {
+        await Auth.logoutAll(u.id || u._id)
+      } catch (e) {
+        console.error("Lỗi khi gọi API logoutAll:", e);
+      }
     }
-    
-    set({user:null,tokens:null});
+
+    set({ user: null, tokens: null });
     clearAllAuth();
   }
 }))

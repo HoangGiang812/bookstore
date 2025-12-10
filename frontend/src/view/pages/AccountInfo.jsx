@@ -198,25 +198,49 @@ export default function AccountInfo() {
   // --- LƯU THAY ĐỔI ---
   const saveProfile = async () => {
     try {
-      // 1. Upload ảnh trước (nếu có)
+      // 1. Upload ảnh (giữ nguyên)
       const finalAvatarPath = await uploadAvatarIfNeeded();
 
-      // 2. Gửi API update (đúng format backend cũ yêu cầu)
+      // 2. Gửi API update (giữ nguyên)
       await api.patch('/users/me/profile', {
         name,
-        avatar: finalAvatarPath,    // Backend cũ map vào u.avatar hoặc u.avatarUrl
-        avatarUrl: finalAvatarPath, // Gửi cả 2 để chắc chắn
+        avatar: finalAvatarPath,
+        avatarUrl: finalAvatarPath,
         dob,
         gender,
         nation
       });
 
-      // 3. Gọi lại API lấy thông tin mới nhất để cập nhật Context
+      // 3. Gọi lại API lấy thông tin mới nhất (giữ nguyên)
       const me = await api.get('/users/me');
-      setUser?.(me);
       
-      setAvatarFile(null); // Reset file upload queue
+      // ✅ CẬP NHẬT STATE REACT
+      setUser?.(me);
+
+      // 🔥 THÊM ĐOẠN NÀY: CẬP NHẬT LUÔN VÀO LOCAL STORAGE
+      // (Giúp đồng bộ ngay lập tức mà không cần F5)
+      try {
+        const storageKey = 'bookstore_data_v1'; // Key lưu trữ của Zustand/App bạn
+        const storedData = JSON.parse(localStorage.getItem(storageKey) || '{}');
+        
+        // Cập nhật state trong storage
+        if (storedData.state) {
+            storedData.state.user = me; 
+            localStorage.setItem(storageKey, JSON.stringify(storedData));
+        }
+        
+        // Kích hoạt sự kiện để Header tự vẽ lại (nếu Header có lắng nghe)
+        window.dispatchEvent(new Event('storage')); 
+      } catch (err) {
+        console.error("Lỗi sync storage:", err);
+      }
+      
+      setAvatarFile(null); 
       showToast?.({ type: 'success', title: 'Cập nhật hồ sơ thành công' });
+
+      // ⚡ NẾU VẪN KHÔNG ĐỔI, DÙNG CHIÊU CUỐI: RELOAD NHẸ
+      // (Bỏ comment dòng dưới nếu bạn muốn chắc chắn 100%)
+      // setTimeout(() => window.location.reload(), 500); 
 
     } catch (e) {
       console.error(e);

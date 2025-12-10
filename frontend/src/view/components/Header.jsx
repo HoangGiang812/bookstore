@@ -56,7 +56,7 @@ function readCartCount(userId) {
 /* =========================================== */
 
 export default function Header() {
-  const { user, logoutAll } = useAuth();
+  const { user, logoutAll, setUser } = useAuth();
   const nav = useNavigate();
   const { pathname } = useLocation();
   if (pathname.startsWith("/admin")) return null;
@@ -256,6 +256,22 @@ export default function Header() {
       </>
     );
   };
+
+  useEffect(() => {
+    const onStorageChange = () => {
+      try {
+        const data = JSON.parse(localStorage.getItem("bookstore_data_v1") || "{}");
+        // Nếu trong storage có user mới -> cập nhật vào state của Auth Context
+        if (data?.state?.user) {
+            setUser(data.state.user);
+        }
+      } catch (e) { console.error(e); }
+    };
+
+    // Lắng nghe sự kiện 'storage' (do AccountInfo phát ra)
+    window.addEventListener("storage", onStorageChange);
+    return () => window.removeEventListener("storage", onStorageChange);
+  }, [setUser]); // Chạy lại nếu setUser thay đổi (thực ra là chỉ 1 lần)
 
   // submit dùng chung cho Enter / click kính lúp
   const submit = (e) => {
@@ -467,7 +483,7 @@ export default function Header() {
                       <img
                         // Thêm key để React biết ảnh đã đổi và render lại ngay lập tức
                         key={user.avatarUrl || user.avatar} 
-                        src={getImageUrl(user.avatarUrl || user.avatar)}
+                        src={`${getImageUrl(user.avatarUrl || user.avatar)}?t=${Date.now()}`}
                         alt={user.name}
                         className="w-full h-full object-cover"
                         onError={(e) => {

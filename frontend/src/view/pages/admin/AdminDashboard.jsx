@@ -46,7 +46,7 @@ const getRoleDisplay = (roles = []) => {
 };
 
 export default function AdminDashboard() {
-  const { user, logout: authLogout } = useAuth();
+  const { user, logout: authLogout, setUser } = useAuth();
   const [activeTab, setActiveTab] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [userMenuOpen, setUserMenuOpen] = useState(false); // Dropdown user
@@ -76,6 +76,23 @@ export default function AdminDashboard() {
       }
     }
   }, [userRoles]);
+
+  useEffect(() => {
+    const syncUser = () => {
+        try {
+            const storeData = JSON.parse(localStorage.getItem('bookstore_data_v1') || '{}');
+            if (storeData.state?.user) {
+                // Kiểm tra nếu avatar khác thì mới set để tránh render thừa
+                if (JSON.stringify(storeData.state.user) !== JSON.stringify(user)) {
+                    setUser(storeData.state.user);
+                }
+            }
+        } catch {}
+    };
+
+    window.addEventListener('storage', syncUser);
+    return () => window.removeEventListener('storage', syncUser);
+  }, [user, setUser]);
 
   const handleLogout = async () => {
     try { await api.post('/auth/logout', {}); } catch {}

@@ -80,15 +80,21 @@ export function clearAllAuth() {
 }
 
 export function getImageUrl(path, fallback = '/placeholder.jpg') {
-  if (!path || typeof path !== 'string') {
-    // Nếu không có path, trả về ảnh placeholder
-    return fallback.startsWith('http') ? fallback : `${ORIGIN}${fallback}`;
-  }
-  if (path.startsWith('http') || path.startsWith('data:')) {
-    return path; // Đây đã là link tuyệt đối hoặc data URI
-  }
-  // Đây là link local (ví dụ: /uploads/image.jpg), thêm domain backend vào
-  return `${ORIGIN}${path}`;
+  if (!path) return fallback; // Trả về ảnh mặc định của Frontend nếu không có path
+
+  // 1. Ảnh Preview (khi vừa chọn file từ máy tính) -> Giữ nguyên
+  if (path.startsWith('blob:')) return path;
+
+  // 2. Ảnh Data URI (Base64) -> Giữ nguyên
+  if (path.startsWith('data:')) return path;
+
+  // 3. Ảnh Online (Cloudinary, Facebook, Google...) -> Giữ nguyên
+  if (path.startsWith('http')) return path;
+
+  // 4. Ảnh Local cũ (ví dụ: /uploads/abc.jpg) -> Nối thêm domain Backend
+  // Đảm bảo path bắt đầu bằng /
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${ORIGIN}${cleanPath}`;
 }
 
 function withParams(url, params) {
